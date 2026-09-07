@@ -11,7 +11,6 @@
 
 D3D11On12Device::D3D11On12Device(D3D11Device *device_11, D3D12Device *device_12, ID3D11On12Device *original) :
 	_orig(original),
-	_interface_version(0),
 	_parent_device_11(device_11),
 	_parent_device_12(device_12)
 {
@@ -35,7 +34,7 @@ bool D3D11On12Device::check_and_upgrade_interface(REFIID riid)
 		__uuidof(ID3D11On12Device2),
 	};
 
-	for (unsigned short version = 0; version < ARRAYSIZE(iid_lookup); ++version)
+	for (unsigned short version = 0; version < std::size(iid_lookup); ++version)
 	{
 		if (riid != iid_lookup[version])
 			continue;
@@ -46,7 +45,7 @@ bool D3D11On12Device::check_and_upgrade_interface(REFIID riid)
 			if (FAILED(_orig->QueryInterface(riid, reinterpret_cast<void **>(&new_interface))))
 				return false;
 #if RESHADE_VERBOSE_LOG
-			LOG(DEBUG) << "Upgrading ID3D11On12Device" << _interface_version << " object " << this << " to ID3D11On12Device" << version << '.';
+			reshade::log::message(reshade::log::level::debug, "Upgrading ID3D11On12Device%hu object %p to ID3D11On12Device%hu.", _interface_version, this, version);
 #endif
 			_orig->Release();
 			_orig = static_cast<ID3D11On12Device *>(new_interface);
@@ -104,6 +103,8 @@ HRESULT STDMETHODCALLTYPE D3D11On12Device::GetD3D12Device(REFIID riid, void **pp
 
 HRESULT STDMETHODCALLTYPE D3D11On12Device::UnwrapUnderlyingResource(ID3D11Resource *pResource11, ID3D12CommandQueue *pCommandQueue, REFIID riid, void **ppvResource12)
 {
+	assert(pCommandQueue != nullptr);
+
 	if (com_ptr<D3D12CommandQueue> command_queue_proxy;
 		SUCCEEDED(pCommandQueue->QueryInterface(&command_queue_proxy)))
 		pCommandQueue = command_queue_proxy->_orig;

@@ -38,6 +38,7 @@ namespace ReShade.Setup
 			if (productVersion.Contains(" "))
 			{
 				NavigationPanel.Background = Brushes.Crimson;
+				productVersion = productVersion.Remove(productVersion.IndexOf(" "));
 			}
 
 			// Add support for TLS 1.2 and 1.3, so that HTTPS connection to GitHub succeeds
@@ -84,6 +85,9 @@ namespace ReShade.Setup
 								break;
 							case "dxgi":
 								currentInfo.targetApi = Api.DXGI;
+								break;
+							case "ddraw":
+								currentInfo.targetApi = Api.DDraw;
 								break;
 							case "opengl":
 								currentInfo.targetApi = Api.OpenGL;
@@ -172,6 +176,8 @@ namespace ReShade.Setup
 #if RESHADE_ADDON
 				MessageBox.Show(this, "This build of ReShade is intended for singleplayer games only and may cause bans in multiplayer games.", "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation);
 #endif
+
+				CheckForUpdate(productVersion);
 			}
 		}
 
@@ -254,17 +260,15 @@ namespace ReShade.Setup
 			}
 		}
 
-		static bool ModuleExists(string path, out bool isReShade)
+		static string GetModuleProductName(string path)
 		{
 			if (File.Exists(path))
 			{
-				isReShade = FileVersionInfo.GetVersionInfo(path).ProductName == "ReShade";
-				return true;
+				return FileVersionInfo.GetVersionInfo(path).ProductName;
 			}
 			else
 			{
-				isReShade = false;
-				return false;
+				return null;
 			}
 		}
 
@@ -286,7 +290,22 @@ namespace ReShade.Setup
 			}
 
 			// Filter out invalid search paths (and those with remaining wildcards that were not handled above)
-			var validSearchPaths = searchPaths.Where(searchPath => searchPath.IndexOfAny(Path.GetInvalidPathChars()) < 0 && searchPath.IndexOf('*') < 0);
+			var validSearchPaths = searchPaths.Where(searchPath =>
+				{
+					if (searchPath.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || searchPath.IndexOf('*') >= 0)
+					{
+						return false;
+					}
+					try
+					{
+						Path.GetFullPath(searchPath);
+						return true;
+					}
+					catch
+					{
+						return false;
+					}
+				});
 
 			// Avoid adding duplicate search paths (relative or absolute)
 			if (validSearchPaths.Any(searchPath => Path.GetFullPath(searchPath) == Path.GetFullPath(newPath)))
@@ -350,7 +369,22 @@ namespace ReShade.Setup
 				searchPaths = effectSearchPaths
 					.Where(searchPath => !string.IsNullOrWhiteSpace(searchPath))
 					.Select(searchPath => searchPath.EndsWith(wildcard) ? new KeyValuePair<string, bool>(searchPath.Remove(searchPath.Length - 1 - wildcard.Length), true) : new KeyValuePair<string, bool>(searchPath, false))
-					.Where(searchPath => searchPath.Key.IndexOfAny(Path.GetInvalidPathChars()) < 0 && searchPath.Key.IndexOf('*') < 0)
+					.Where(searchPath =>
+						{
+							if (searchPath.Key.IndexOfAny(Path.GetInvalidPathChars()) >= 0 || searchPath.Key.IndexOf('*') >= 0)
+							{
+								return false;
+							}
+							try
+							{
+								Path.GetFullPath(searchPath.Key);
+								return true;
+							}
+							catch
+							{
+								return false;
+							}
+						})
 					.Select(searchPath => new KeyValuePair<string, bool>(Path.GetFullPath(searchPath.Key), searchPath.Value))
 					.ToList();
 			}
@@ -389,7 +423,7 @@ namespace ReShade.Setup
 					CurrentPage.Navigate(status);
 				}
 
-				AeroGlass.HideSystemMenu(this, true);
+				DWM.HideSystemMenu(this, true);
 			});
 
 			if (isHeadless)
@@ -412,7 +446,7 @@ namespace ReShade.Setup
 					Title += success ? " was successful!" : " was not successful!";
 				}
 
-				AeroGlass.HideSystemMenu(this, false);
+				DWM.HideSystemMenu(this, false);
 			});
 
 			if (isHeadless)
@@ -453,6 +487,9 @@ namespace ReShade.Setup
 					break;
 				case Api.DXGI:
 					startInfo.Arguments += " --api dxgi";
+					break;
+				case Api.DDraw:
+					startInfo.Arguments += " --api ddraw";
 					break;
 				case Api.OpenGL:
 					startInfo.Arguments += " --api opengl";
@@ -495,12 +532,68 @@ namespace ReShade.Setup
 			}
 		}
 
+		void CheckForUpdate(string currentVersion)
+		{
+			using (var client = new WebClient())
+			{
+				// GitHub API requests require a user agent to be set
+				client.Headers["User-Agent"] = "reshade";
+
+				client.DownloadStringCompleted += (s, e) =>
+				{
+					if (e.Error != null)
+					{
+						return;
+					}
+
+					string data = e.Result;
+					if (data.Length == 0)
+					{
+						return;
+					}
+
+					int tagBeg = data.IndexOf("\"v");
+					if (tagBeg < 0)
+					{
+						return;
+					}
+
+					tagBeg += 2;
+
+					int tagEnd = data.IndexOf('\"', tagBeg);
+					if (tagEnd < 0)
+					{
+						return;
+					}
+
+					string latestVersion = data.Substring(tagBeg, tagEnd - tagBeg);
+
+					if (new Version(latestVersion) > new Version(currentVersion))
+					{
+						MessageBox.Show(this, "This build of ReShade is outdated. A newer version (v" + latestVersion + ") can be downloaded from https://reshade.me.", "Update", MessageBoxButton.OK, MessageBoxImage.Information);
+					}
+				};
+
+				try
+				{
+
+					client.DownloadStringAsync(new Uri("https://api.github.com/repos/crosire/reshade/tags"));
+				}
+				catch (WebException)
+				{
+					// Ignore if update check failed
+				}
+			}
+		}
+
 		void DownloadCompatibilityIni()
 		{
 			if (compatibilityIni != null)
 			{
 				return;
 			}
+
+			UpdateStatus("Downloading compatibility information ...");
 
 			// Attempt to download compatibility list
 			using (var client = new WebClient())
@@ -524,6 +617,8 @@ namespace ReShade.Setup
 
 		void InstallStep_AnalyzeExecutable()
 		{
+			DownloadCompatibilityIni();
+
 			UpdateStatus("Analyzing executable ...");
 
 			// In case this is the bootstrap executable of an Unreal Engine game, try and find the actual game executable for it
@@ -549,21 +644,66 @@ namespace ReShade.Setup
 
 			bool isApiD3D9 = false;
 			bool isApiDXGI = false;
+			bool isApiDDraw = false;
 			bool isApiOpenGL = false;
 			bool isApiVulkan = false;
+			currentInfo.targetApi = Api.Unknown;
 			currentInfo.targetOpenXR = false;
 
 			string basePath = Path.GetDirectoryName(currentInfo.targetPath);
+			if (basePath.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.Windows)))
+			{
+				UpdateStatusAndFinish(false, "Installation to the Windows directory is prohibited.");
+				return;
+			}
 
 			// Check whether the API is specified in the compatibility list, in which case setup can continue right away
-			DownloadCompatibilityIni();
-
 			string executableName = Path.GetFileName(currentInfo.targetPath);
+			if (compatibilityIni?.GetString(executableName, "Banned") == "1")
+			{
+				// Automatically uninstall ReShade from banned applications
+				foreach (string conflictingModuleName in new[] { "d3d9.dll", "d3d10.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "opengl32.dll" })
+				{
+					string conflictingModulePath = Path.Combine(basePath, conflictingModuleName);
+
+					try
+					{
+						if (GetModuleProductName(conflictingModulePath) == "ReShade")
+						{
+							File.Delete(conflictingModulePath);
+						}
+					}
+					catch (SystemException)
+					{
+						// Ignore errors
+						continue;
+					}
+				}
+
+				UpdateStatusAndFinish(false, "The target application is known to have blocked or banned the usage of ReShade. Cannot continue installation.");
+				return;
+			}
+
+			if (peInfo.StackSize < 1000000 && !executableName.Equals("gamelaunchhelper.exe", StringComparison.OrdinalIgnoreCase))
+			{
+				UpdateStatus("Waiting for user confirmation ...");
+
+				Dispatcher.Invoke(() =>
+				{
+					MessageBox.Show(this, "The target application uses a small default stack size.\nIn order to use ReShade without crashing you'll have to patch the executable to increase the stack size from " + peInfo.StackSize + " bytes to at least 1 MB.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+				});
+			}
+
 			if (compatibilityIni != null && compatibilityIni.HasValue(executableName, "RenderApi"))
 			{
 				if (compatibilityIni.HasValue(executableName, "InstallTarget"))
 				{
 					basePath = Path.Combine(basePath, compatibilityIni.GetString(executableName, "InstallTarget"));
+
+					if (compatibilityIni.HasValue(executableName, "Is64Bit"))
+					{
+						currentInfo.is64Bit = compatibilityIni.GetString(executableName, "Is64Bit") == "1";
+					}
 				}
 
 				string api = compatibilityIni.GetString(executableName, "RenderApi");
@@ -575,6 +715,10 @@ namespace ReShade.Setup
 				else if (api == "D3D10" || api == "D3D11" || api == "D3D12" || api == "DXGI")
 				{
 					isApiDXGI = true;
+				}
+				else if (api == "DDraw")
+				{
+					isApiDDraw = true;
 				}
 				else if (api == "OpenGL")
 				{
@@ -590,9 +734,10 @@ namespace ReShade.Setup
 				bool isApiD3D8 = peInfo.Modules.Any(s => s.StartsWith("d3d8", StringComparison.OrdinalIgnoreCase));
 				isApiD3D9 = isApiD3D8 || peInfo.Modules.Any(s => s.StartsWith("d3d9", StringComparison.OrdinalIgnoreCase));
 				isApiDXGI = peInfo.Modules.Any(s => s.StartsWith("dxgi", StringComparison.OrdinalIgnoreCase) || s.StartsWith("d3d1", StringComparison.OrdinalIgnoreCase) || s.Contains("GFSDK")); // Assume DXGI when GameWorks SDK is in use
+				isApiDDraw = peInfo.Modules.Any(s => s.StartsWith("ddraw", StringComparison.OrdinalIgnoreCase));
 				isApiOpenGL = peInfo.Modules.Any(s => s.StartsWith("opengl32", StringComparison.OrdinalIgnoreCase));
 				isApiVulkan = peInfo.Modules.Any(s => s.StartsWith("vulkan-1", StringComparison.OrdinalIgnoreCase));
-				currentInfo.targetOpenXR = peInfo.Modules.Any(s => s.StartsWith("openxr_loader", StringComparison.OrdinalIgnoreCase));
+				// currentInfo.targetOpenXR = peInfo.Modules.Any(s => s.StartsWith("openxr_loader", StringComparison.OrdinalIgnoreCase));
 
 				if (isApiD3D9 && isApiDXGI)
 				{
@@ -615,6 +760,13 @@ namespace ReShade.Setup
 				{
 					isApiOpenGL = false; // Prefer Vulkan and Direct3D over OpenGL
 				}
+			}
+
+			// In case DXVK is installed, default to Vulkan
+			if (GetModuleProductName(Path.Combine(basePath, "d3d9.dll")) == "DXVK" ||
+				GetModuleProductName(Path.Combine(basePath, "dxgi.dll")) == "DXVK")
+			{
+				isApiVulkan = true;
 			}
 
 			// In case this game is modded with NVIDIA RTX Remix, install to the Remix Bridge
@@ -642,6 +794,10 @@ namespace ReShade.Setup
 			{
 				currentInfo.targetApi = Api.OpenGL;
 			}
+			else if (isApiDDraw)
+			{
+				currentInfo.targetApi = Api.DDraw;
+			}
 
 			if (isHeadless)
 			{
@@ -660,12 +816,12 @@ namespace ReShade.Setup
 		}
 		void InstallStep_CheckExistingInstallation()
 		{
+			DownloadCompatibilityIni();
+
 			UpdateStatus("Checking installation status ...");
 
 			string basePath = Path.GetDirectoryName(currentInfo.targetPath);
 			string executableName = Path.GetFileName(currentInfo.targetPath);
-
-			DownloadCompatibilityIni();
 
 			if (currentInfo.targetApi != Api.Vulkan && compatibilityIni != null)
 			{
@@ -698,6 +854,10 @@ namespace ReShade.Setup
 					{
 						currentInfo.targetApi = Api.D3D12;
 					}
+					else if (api == "DDraw")
+					{
+						currentInfo.targetApi = Api.DDraw;
+					}
 					else if (api == "OpenGL")
 					{
 						currentInfo.targetApi = Api.OpenGL;
@@ -706,8 +866,6 @@ namespace ReShade.Setup
 			}
 
 			currentInfo.configPath = Path.Combine(basePath, "ReShade.ini");
-
-			bool isReShade = false;
 
 			if (currentInfo.targetApi == Api.Vulkan || currentInfo.targetOpenXR)
 			{
@@ -749,6 +907,9 @@ namespace ReShade.Setup
 					case Api.DXGI:
 						currentInfo.modulePath = "dxgi.dll";
 						break;
+					case Api.DDraw:
+						currentInfo.modulePath = "ddraw.dll";
+						break;
 					case Api.OpenGL:
 						currentInfo.modulePath = "opengl32.dll";
 						break;
@@ -759,9 +920,9 @@ namespace ReShade.Setup
 
 				currentInfo.modulePath = Path.Combine(basePath, currentInfo.modulePath);
 
-				if (currentOperation == InstallOperation.Install && ModuleExists(currentInfo.modulePath, out isReShade))
+				if (currentOperation == InstallOperation.Install && GetModuleProductName(currentInfo.modulePath) != null)
 				{
-					if (isReShade)
+					if (GetModuleProductName(currentInfo.modulePath) == "ReShade")
 					{
 						if (isHeadless)
 						{
@@ -786,7 +947,7 @@ namespace ReShade.Setup
 			{
 				string conflictingModulePath = Path.Combine(basePath, conflictingModuleName);
 
-				if (currentOperation == InstallOperation.Install && ModuleExists(conflictingModulePath, out isReShade) && isReShade)
+				if (currentOperation == InstallOperation.Install && GetModuleProductName(conflictingModulePath) == "ReShade")
 				{
 					if (isHeadless)
 					{
@@ -865,7 +1026,7 @@ namespace ReShade.Setup
 
 				try
 				{
-					if (ModuleExists(conflictingModulePath, out bool isReShade) && isReShade)
+					if (GetModuleProductName(conflictingModulePath) == "ReShade")
 					{
 						File.Delete(conflictingModulePath);
 					}
@@ -1016,8 +1177,9 @@ namespace ReShade.Setup
 				var appConfig = new IniFile(Path.Combine(commonPath, "ReShadeApps.ini"));
 				if (appConfig.GetValue(string.Empty, "Apps", out string[] appKeys) == false || !appKeys.Contains(currentInfo.targetPath))
 				{
-					List<string> appKeysList = appKeys != null ? appKeys.ToList() : new List<string>();
+					List<string> appKeysList = appKeys?.ToList() ?? new List<string>();
 					appKeysList.Add(currentInfo.targetPath);
+
 					appConfig.SetValue(string.Empty, "Apps", appKeysList.ToArray());
 					appConfig.SaveFile();
 				}
@@ -1078,21 +1240,21 @@ In that event here are some steps you can try to resolve this:
 				}
 			}
 
-			DownloadCompatibilityIni();
-
 			// Add default configuration
 			var config = new IniFile(currentInfo.configPath);
 			if (compatibilityIni != null && !config.HasValue("GENERAL", "PreprocessorDefinitions"))
 			{
-				string depthReversed = compatibilityIni.GetString(currentInfo.targetName, "DepthReversed", "0");
-				string depthUpsideDown = compatibilityIni.GetString(currentInfo.targetName, "DepthUpsideDown", "0");
-				string depthLogarithmic = compatibilityIni.GetString(currentInfo.targetName, "DepthLogarithmic", "0");
-				if (!compatibilityIni.HasValue(currentInfo.targetName, "DepthReversed"))
+				string executableName = Path.GetFileName(currentInfo.targetPath);
+
+				string depthReversed = compatibilityIni.GetString(executableName, "DepthReversed", "0");
+				string depthUpsideDown = compatibilityIni.GetString(executableName, "DepthUpsideDown", "0");
+				string depthLogarithmic = compatibilityIni.GetString(executableName, "DepthLogarithmic", "0");
+				if (!compatibilityIni.HasValue(executableName, "DepthReversed"))
 				{
 					var info = FileVersionInfo.GetVersionInfo(currentInfo.targetPath);
 					if (info.LegalCopyright != null)
 					{
-						Match match = new Regex("(20[0-9]{2})", RegexOptions.RightToLeft).Match(info.LegalCopyright);
+						Match match = new Regex(@"(20[0-9]{2})", RegexOptions.RightToLeft).Match(info.LegalCopyright);
 						if (match.Success && int.TryParse(match.Groups[1].Value, out int year))
 						{
 							// Modern games usually use reversed depth
@@ -1107,170 +1269,20 @@ In that event here are some steps you can try to resolve this:
 					"RESHADE_DEPTH_INPUT_IS_REVERSED=" + depthReversed,
 					"RESHADE_DEPTH_INPUT_IS_LOGARITHMIC=" + depthLogarithmic);
 
-				if (compatibilityIni.HasValue(currentInfo.targetName, "DepthCopyBeforeClears") ||
-					compatibilityIni.HasValue(currentInfo.targetName, "DepthCopyAtClearIndex") ||
-					compatibilityIni.HasValue(currentInfo.targetName, "UseAspectRatioHeuristics"))
+				if (compatibilityIni.HasValue(executableName, "DepthCopyBeforeClears") ||
+					compatibilityIni.HasValue(executableName, "DepthCopyAtClearIndex") ||
+					compatibilityIni.HasValue(executableName, "DrawStatsHeuristic") ||
+					compatibilityIni.HasValue(executableName, "UseAspectRatioHeuristics"))
 				{
 					config.SetValue("DEPTH", "DepthCopyBeforeClears",
-						compatibilityIni.GetString(currentInfo.targetName, "DepthCopyBeforeClears", "0"));
+						compatibilityIni.GetString(executableName, "DepthCopyBeforeClears", "0"));
 					config.SetValue("DEPTH", "DepthCopyAtClearIndex",
-						compatibilityIni.GetString(currentInfo.targetName, "DepthCopyAtClearIndex", "0"));
+						compatibilityIni.GetString(executableName, "DepthCopyAtClearIndex", "0"));
+					config.SetValue("DEPTH", "DrawStatsHeuristic",
+						compatibilityIni.GetString(executableName, "DrawStatsHeuristic", "0"));
 					config.SetValue("DEPTH", "UseAspectRatioHeuristics",
-						compatibilityIni.GetString(currentInfo.targetName, "UseAspectRatioHeuristics", "1"));
+						compatibilityIni.GetString(executableName, "UseAspectRatioHeuristics", "1"));
 				}
-			}
-
-			// Update old configurations to new format
-			if (!config.HasValue("INPUT", "KeyOverlay") && config.HasValue("INPUT", "KeyMenu"))
-			{
-				config.RenameValue("INPUT", "KeyMenu", "KeyOverlay");
-
-				config.RenameValue("GENERAL", "CurrentPresetPath", "PresetPath");
-
-				config.RenameValue("GENERAL", "ShowFPS", "OVERLAY", "ShowFPS");
-				config.RenameValue("GENERAL", "ShowClock", "OVERLAY", "ShowClock");
-				config.RenameValue("GENERAL", "ShowFrameTime", "OVERLAY", "ShowFrameTime");
-				config.RenameValue("GENERAL", "ShowScreenshotMessage", "OVERLAY", "ShowScreenshotMessage");
-				config.RenameValue("GENERAL", "FPSPosition", "OVERLAY", "FPSPosition");
-				config.RenameValue("GENERAL", "ClockFormat", "OVERLAY", "ClockFormat");
-				config.RenameValue("GENERAL", "NoFontScaling", "OVERLAY", "NoFontScaling");
-				config.RenameValue("GENERAL", "TutorialProgress", "OVERLAY", "TutorialProgress");
-				config.RenameValue("GENERAL", "VariableUIHeight", "OVERLAY", "VariableListHeight");
-				config.RenameValue("GENERAL", "NewVariableUI", "OVERLAY", "VariableListUseTabs");
-				config.RenameValue("GENERAL", "ScreenshotFormat", "SCREENSHOT", "FileFormat");
-				config.RenameValue("GENERAL", "ScreenshotSaveBefore", "SCREENSHOT", "SaveBeforeShot");
-				config.RenameValue("GENERAL", "ScreenshotSaveUI", "SCREENSHOT", "SaveOverlayShot");
-				config.RenameValue("GENERAL", "ScreenshotPath", "SCREENSHOT", "SavePath");
-				config.RenameValue("GENERAL", "ScreenshotIncludePreset", "SCREENSHOT", "SavePresetFile");
-			}
-
-			if (!config.HasValue("DEPTH"))
-			{
-				if (config.HasValue("D3D9"))
-				{
-					config.RenameValue("D3D9", "DisableINTZ", "DEPTH", "DisableINTZ");
-					config.RenameValue("D3D9", "DepthCopyBeforeClears", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("D3D9", "DepthCopyAtClearIndex", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("D3D9", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-				else if (config.HasValue("DX9_BUFFER_DETECTION"))
-				{
-					config.RenameValue("DX9_BUFFER_DETECTION", "DisableINTZ", "DEPTH", "DisableINTZ");
-					config.RenameValue("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("DX9_BUFFER_DETECTION", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-
-				if (config.HasValue("D3D10"))
-				{
-					config.RenameValue("D3D10", "DepthCopyBeforeClears", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("D3D10", "DepthCopyAtClearIndex", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("D3D10", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-				else if (config.HasValue("DX10_BUFFER_DETECTION"))
-				{
-					config.RenameValue("DX10_BUFFER_DETECTION", "DepthBufferRetrievalMode", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("DX10_BUFFER_DETECTION", "DepthBufferClearingNumber", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("DX10_BUFFER_DETECTION", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-
-				if (config.HasValue("D3D11"))
-				{
-					config.RenameValue("D3D11", "DepthCopyBeforeClears", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("D3D11", "DepthCopyAtClearIndex", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("D3D11", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-				else if (config.HasValue("DX11_BUFFER_DETECTION"))
-				{
-					config.RenameValue("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("DX11_BUFFER_DETECTION", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-
-				if (config.HasValue("D3D12"))
-				{
-					config.RenameValue("D3D12", "DepthCopyBeforeClears", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("D3D12", "DepthCopyAtClearIndex", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("D3D12", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-				else if (config.HasValue("DX12_BUFFER_DETECTION"))
-				{
-					config.RenameValue("DX12_BUFFER_DETECTION", "DepthBufferRetrievalMode", "DEPTH", "DepthCopyBeforeClears");
-					config.RenameValue("DX12_BUFFER_DETECTION", "DepthBufferClearingNumber", "DEPTH", "DepthCopyAtClearIndex");
-					config.RenameValue("DX12_BUFFER_DETECTION", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-
-				if (config.HasValue("OPENGL"))
-				{
-					config.RenameValue("OPENGL", "ReserveTextureNames", "APP", "ReserveTextureNames");
-					config.RenameValue("OPENGL", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-
-				if (config.HasValue("VULKAN"))
-				{
-					config.RenameValue("VULKAN", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-				else if (config.HasValue("VULKAN_BUFFER_DETECTION"))
-				{
-					config.RenameValue("VULKAN_BUFFER_DETECTION", "UseAspectRatioHeuristics", "DEPTH", "UseAspectRatioHeuristics");
-				}
-			}
-
-			if (!config.HasValue("SCREENSHOT"))
-			{
-				config.RenameValue("SCREENSHOTS", "FileFormat", "SCREENSHOT", "FileFormat");
-				config.RenameValue("SCREENSHOTS", "SaveBeforeShot", "SCREENSHOT", "SaveBeforeShot");
-				config.RenameValue("SCREENSHOTS", "SaveOverlayShot", "SCREENSHOT", "SaveOverlayShot");
-				config.RenameValue("SCREENSHOTS", "SavePath", "SCREENSHOT", "SavePath");
-				config.RenameValue("SCREENSHOTS", "SavePresetFile", "SCREENSHOT", "SavePresetFile");
-			}
-
-			if (!config.HasValue("SCREENSHOT", "FileNaming") && config.HasValue("SCREENSHOT", "FileNamingFormat"))
-			{
-				if (int.TryParse(config.GetString("SCREENSHOT", "FileNamingFormat", "0"), out int formatIndex))
-				{
-					if (formatIndex == 0)
-					{
-						config.SetValue("SCREENSHOT", "FileNaming", "%AppName% %Date% %Time%");
-					}
-					else if (formatIndex == 1)
-					{
-						config.SetValue("SCREENSHOT", "FileNaming", "%AppName% %Date% %Time% %PresetName%");
-					}
-				}
-			}
-
-			if (!config.HasValue("GENERAL", "PresetPath") && config.HasValue("GENERAL", "CurrentPreset"))
-			{
-				if (config.GetValue("GENERAL", "PresetFiles", out string[] presetFiles) &&
-					int.TryParse(config.GetString("GENERAL", "CurrentPreset", "0"), out int presetIndex) && presetIndex < presetFiles.Length)
-				{
-					config.SetValue("GENERAL", "PresetPath", presetFiles[presetIndex]);
-				}
-			}
-
-			if (!config.HasValue("GENERAL", "PresetTransitionDuration") && config.HasValue("GENERAL", "PresetTransitionDelay"))
-			{
-				config.RenameValue("GENERAL", "PresetTransitionDelay", "GENERAL", "PresetTransitionDuration");
-			}
-
-			if (!config.HasValue("ADDON", "AddonPath") && config.HasValue("INSTALL", "AddonPath"))
-			{
-				config.RenameValue("INSTALL", "AddonPath", "ADDON", "AddonPath");
-			}
-
-			if (!config.HasValue("OVERLAY", "AutoSavePreset") && config.HasValue("OVERLAY", "SavePresetOnModification"))
-			{
-				config.RenameValue("OVERLAY", "SavePresetOnModification", "AutoSavePreset");
-			}
-
-			// Always add app section if this is the global config
-			if (Path.GetDirectoryName(currentInfo.configPath) == Path.GetDirectoryName(currentInfo.targetPath) && !config.HasValue("APP"))
-			{
-				config.SetValue("APP", "ForceVsync", "0");
-				config.SetValue("APP", "ForceWindowed", "0");
-				config.SetValue("APP", "ForceFullscreen", "0");
-				config.SetValue("APP", "ForceDefaultRefreshRate", "0");
 			}
 
 			// Always add input section
@@ -1279,6 +1291,12 @@ In that event here are some steps you can try to resolve this:
 				config.SetValue("INPUT", "KeyOverlay", "36,0,0,0");
 				// Only enable gamepad input in cases where keyboard and mouse input is known to not work (when installed to UWP apps or the NVIDIA RTX Remix Bridge)
 				config.SetValue("INPUT", "GamepadNavigation", currentInfo.targetPath.Contains("WindowsApps") || Path.GetFileName(currentInfo.targetPath) == "NvRemixBridge.exe" ? "1" : "0");
+			}
+
+			if (!config.HasValue("PROXY"))
+			{
+				config.SetValue("PROXY", "EnableProxyLibrary", "0");
+				config.SetValue("PROXY", "ProxyLibrary", "");
 			}
 
 			config.SaveFile();
@@ -1314,7 +1332,7 @@ In that event here are some steps you can try to resolve this:
 			// Add default search paths if no config exists
 			if (!config.HasValue("GENERAL", "EffectSearchPaths") && !config.HasValue("GENERAL", "TextureSearchPaths"))
 			{
-				WriteSearchPaths(".\\reshade-shaders\\Shaders", ".\\reshade-shaders\\Textures");
+				WriteSearchPaths(".\\reshade-shaders\\Shaders\\**", ".\\reshade-shaders\\Textures\\**");
 			}
 
 			InstallStep_Finish();
@@ -1390,7 +1408,7 @@ In that event here are some steps you can try to resolve this:
 			{
 				string basePath = Path.GetDirectoryName(currentInfo.configPath);
 
-				if (currentInfo.targetApi != Api.Vulkan && !currentInfo.targetOpenXR)
+				if (currentInfo.modulePath != null && currentInfo.targetApi != Api.Vulkan && !currentInfo.targetOpenXR)
 				{
 					File.Delete(currentInfo.modulePath);
 				}
@@ -1440,7 +1458,7 @@ In that event here are some steps you can try to resolve this:
 				{
 					string conflictingModulePath = Path.Combine(basePath, conflictingModuleName);
 
-					if (ModuleExists(conflictingModulePath, out bool isReShade) && isReShade)
+					if (GetModuleProductName(conflictingModulePath) == "ReShade")
 					{
 						File.Delete(conflictingModulePath);
 					}
@@ -1459,8 +1477,16 @@ In that event here are some steps you can try to resolve this:
 		{
 			if (!string.IsNullOrEmpty(currentInfo.presetPath) && File.Exists(currentInfo.presetPath))
 			{
+				string basePath = Path.GetDirectoryName(currentInfo.configPath);
+				string presetPath = currentInfo.presetPath;
+				if (presetPath.StartsWith(basePath))
+				{
+					// Try and make preset path relative
+					presetPath = "." + presetPath.Substring(basePath.Length);
+				}
+
 				var config = new IniFile(currentInfo.configPath);
-				config.SetValue("GENERAL", "PresetPath", currentInfo.presetPath);
+				config.SetValue("GENERAL", "PresetPath", presetPath);
 				config.SaveFile();
 
 				MakeWritable(currentInfo.presetPath);
@@ -1706,7 +1732,15 @@ In that event here are some steps you can try to resolve this:
 					string addonPath = Directory.EnumerateFiles(tempPath, currentInfo.is64Bit ? "*.addon64" : "*.addon32", SearchOption.AllDirectories).FirstOrDefault();
 					if (addonPath == null)
 					{
-						addonPath = Directory.EnumerateFiles(tempPath, "*.addon").FirstOrDefault(x => x.Contains(currentInfo.is64Bit ? "x64" : "x86") || Path.GetFileNameWithoutExtension(x).EndsWith(currentInfo.is64Bit ? "64" : "32"));
+						IEnumerable<string> addonPaths = Directory.EnumerateFiles(tempPath, "*.addon");
+						if (addonPaths.Count() == 1)
+						{
+							addonPath = addonPaths.First();
+						}
+						else
+						{
+							addonPath = addonPaths.FirstOrDefault(x => x.Contains(currentInfo.is64Bit ? "x64" : "x86") || Path.GetFileNameWithoutExtension(x).EndsWith(currentInfo.is64Bit ? "64" : "32"));
+						}
 					}
 					if (addonPath == null)
 					{
@@ -1767,14 +1801,21 @@ In that event here are some steps you can try to resolve this:
 		}
 		void InstallStep_Finish()
 		{
-			UpdateStatusAndFinish(true, (currentOperation != InstallOperation.Uninstall ? "Successfully installed ReShade." : "Successfully uninstalled ReShade.") +
-				(isHeadless ? string.Empty : "\nClick the \"Finish\" button to exit the setup tool."));
+			if (currentOperation != InstallOperation.Uninstall)
+			{
+				UpdateStatusAndFinish(true, "Successfully installed ReShade." +
+					(isHeadless ? string.Empty : "\nClick the \"Finish\" button to exit the setup tool.\n\nTo uninstall, run this setup tool and select the application again to be presented with an uninstall option."));
+			}
+			else
+			{
+				UpdateStatusAndFinish(true, "Successfully uninstalled ReShade." + (isHeadless ? string.Empty : "\nClick the \"Finish\" button to exit the setup tool."));
+			}
 		}
 
 		void OnWindowInit(object sender, EventArgs e)
 		{
-			AeroGlass.HideIcon(this);
-			AeroGlass.HideSystemMenu(this, currentInfo.targetPath != null);
+			DWM.HideIcon(this);
+			DWM.HideSystemMenu(this, currentInfo.targetPath != null);
 		}
 
 		void OnNextButtonClick(object sender, RoutedEventArgs e)
@@ -1880,17 +1921,22 @@ In that event here are some steps you can try to resolve this:
 			Close();
 		}
 
+		void OnSkipButtonClick(object sender, RoutedEventArgs e)
+		{
+			if (CurrentPage.Content is SelectEffectsPage)
+			{
+				InstallStep_CheckAddons();
+			}
+			else
+			{
+				InstallStep_Finish();
+			}
+		}
 		void OnCancelButtonClick(object sender, RoutedEventArgs e)
 		{
 			if (CurrentPage.Content is SelectAppPage appPage)
 			{
 				appPage.Cancel();
-			}
-
-			if (CurrentPage.Content is SelectAddonsPage || CurrentPage.Content is SelectEffectsPage)
-			{
-				InstallStep_Finish();
-				return;
 			}
 
 			Close();
@@ -1899,9 +1945,13 @@ In that event here are some steps you can try to resolve this:
 		void OnCurrentPageNavigated(object sender, NavigationEventArgs e)
 		{
 			bool isFinished = currentOperation == InstallOperation.Finished;
+			bool isSkippable = e.Content is SelectAddonsPage || e.Content is SelectEffectsPage;
 
 			NextButton.Visibility = isFinished ? Visibility.Collapsed : Visibility.Visible;
 			FinishButton.Visibility = isFinished ? Visibility.Visible : Visibility.Collapsed;
+
+			SkipButton.Visibility = isSkippable ? Visibility.Visible : Visibility.Collapsed;
+			CancelButton.Visibility = isSkippable ? Visibility.Collapsed : Visibility.Visible;
 
 			BackButton.IsEnabled = isFinished;
 			CancelButton.IsEnabled = !(e.Content is StatusPage);

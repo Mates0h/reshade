@@ -4,14 +4,15 @@
  */
 
 #include "effect_expression.hpp"
-#include <cmath> // fmod
+#include <cmath> // std::fmod
 #include <cassert>
-#include <cstring> // memcpy, memset
-#include <algorithm> // std::min, std::max
+#include <cstring> // std::memcpy, std::memset
+#include <algorithm> // std::max, std::min
 
 reshadefx::type reshadefx::type::merge(const type &lhs, const type &rhs)
 {
-	type result = { std::max(lhs.base, rhs.base) };
+	type result;
+	result.base = std::max(lhs.base, rhs.base);
 
 	// Non-numeric types cannot be vectors or matrices
 	if (!result.is_numeric())
@@ -34,10 +35,13 @@ reshadefx::type reshadefx::type::merge(const type &lhs, const type &rhs)
 	// Some qualifiers propagate to the result
 	result.qualifiers = (lhs.qualifiers & type::q_precise) | (rhs.qualifiers & type::q_precise);
 
-	// In case this is a structure, assume they are the same
-	result.definition = rhs.definition;
-	assert(lhs.definition == rhs.definition || lhs.definition == 0);
+	// Cannot merge array types, assume no arrays
+	result.array_length = 0;
 	assert(lhs.array_length == 0 && rhs.array_length == 0);
+
+	// In case this is a structure, assume they are the same
+	result.struct_definition = rhs.struct_definition;
+	assert(lhs.struct_definition == rhs.struct_definition || lhs.struct_definition == 0);
 
 	return result;
 }
@@ -141,7 +145,7 @@ std::string reshadefx::type::description() const
 		result = "storage3D<float" + std::to_string(rows) + '>';
 		break;
 	case t_function:
-		result = "function";
+		assert(false);
 		break;
 	}
 
@@ -387,11 +391,18 @@ void reshadefx::expression::add_constant_index_access(unsigned int index)
 void reshadefx::expression::add_swizzle_access(const signed char swizzle[4], unsigned int length)
 {
 	assert(type.is_numeric() && !type.is_array());
+	assert(length <= 4);
 
 	const struct type prev_type = type;
 
 	type.rows = length;
 	type.cols = 1;
+
+	// To form a l-value, swizzling must contain no duplicate components
+	for (unsigned int i = 0; i < length; ++i)
+		for (unsigned int k = i + 1; k < length; ++k)
+			if (swizzle[k] == swizzle[i])
+				type.qualifiers |= type::q_const;
 
 	if (is_constant)
 	{
@@ -406,6 +417,10 @@ void reshadefx::expression::add_swizzle_access(const signed char swizzle[4], uns
 	else if (length == 1 && prev_type.is_vector()) // Use indexing when possible since the code generation logic is simpler in SPIR-V
 	{
 		chain.push_back({ operation::op_constant_index, prev_type, type, static_cast<uint32_t>(swizzle[0]) });
+	}
+	else if (prev_type.is_matrix())
+	{
+		chain.push_back({ operation::op_matrix_swizzle, prev_type, type, 0, { swizzle[0], swizzle[1], swizzle[2], swizzle[3] } });
 	}
 	else
 	{

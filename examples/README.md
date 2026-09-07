@@ -3,9 +3,9 @@ ReShade API Examples
 
 Detailed API documentation can be found at https://crosire.github.io/reshade-docs/index.html.
 
-## [01-framerate_limit](/examples/01-framerate_limit)
+## [01-fps_limit](/examples/01-fps_limit)
 
-Limits the framerate of an application to a specified FPS value.
+Limits the frame rate of an application to a specified FPS value.
 
 ## [02-freepie](/examples/02-freepie)
 
@@ -69,3 +69,25 @@ Shows how to use the ReShade API to create acceleration structures and trace ray
 ## [15-effect_runtime_sync](/examples/15-effect_runtime_sync)
 
 Built-in add-on that adds preset synchronization between different effect runtime instances, e.g. to have changes in a desktop window reflect in VR.
+
+## [16-swapchain_override](/examples/16-swapchain_override)
+
+Adds options to ReShade.ini to force the application into windowed or fullscreen mode, or a specific resolution or the default refresh rate.
+
+```
+[APP]
+ForceVsync=0
+ForceWindowed=0
+ForceFullscreen=0
+Force10BitFormat=0
+ForceDefaultRefreshRate=0
+ForceResolution=0,0
+```
+
+## [17-screenshot_to_clipboard](/examples/17-screenshot_to_clipboard)
+
+Copies the saved image file to the Windows clipboard every time a screenshot is taken.
+
+## [18-window_transparency](/examples/18-window_transparency)
+
+Disables transparency for windows, since it messes with effects that do not return an alpha value.

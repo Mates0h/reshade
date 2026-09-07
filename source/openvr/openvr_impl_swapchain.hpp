@@ -8,9 +8,9 @@
 #include "reshade_api_object_impl.hpp"
 #include <openvr.h>
 
-struct D3D10Device;
-struct D3D11Device;
-struct D3D12CommandQueue;
+class D3D10Device;
+class D3D11Device;
+class D3D12CommandQueue;
 
 namespace reshade::openvr
 {
@@ -24,6 +24,7 @@ namespace reshade::openvr
 		~swapchain_impl();
 
 		api::device *get_device() final;
+		api::command_queue *get_command_queue() { return _graphics_queue; }
 
 		void *get_hwnd() const final { return nullptr; }
 
@@ -32,7 +33,7 @@ namespace reshade::openvr
 		uint32_t get_back_buffer_count() const final { return 1; }
 		uint32_t get_current_back_buffer_index() const final { return 0; }
 
-		bool check_color_space_support(api::color_space color_space) const final { return color_space == api::color_space::srgb_nonlinear || color_space == api::color_space::extended_srgb_linear; }
+		bool check_color_space_support(api::color_space color_space) const final { return color_space == api::color_space::srgb || color_space == api::color_space::scrgb; }
 
 		api::color_space get_color_space() const final { return _back_buffer_color_space; }
 		void set_color_space(vr::EColorSpace color_space);
@@ -40,17 +41,16 @@ namespace reshade::openvr
 		api::rect get_eye_rect(vr::EVREye eye) const;
 		api::subresource_box get_eye_subresource_box(vr::EVREye eye) const;
 
-		bool on_init();
+		void on_init();
 		void on_reset();
-		bool is_initialized() const { return _side_by_side_texture != 0; }
 
-		bool on_vr_submit(api::command_queue *queue, vr::EVREye eye, api::resource eye_texture, vr::EColorSpace color_space, const vr::VRTextureBounds_t *bounds, uint32_t layer);
+		bool on_vr_submit(vr::EVREye eye, api::resource eye_texture, vr::EColorSpace color_space, const vr::VRTextureBounds_t *bounds, uint32_t layer);
 
 	private:
 		api::device *const _device;
+		api::command_queue *const _graphics_queue;
 		api::resource _side_by_side_texture = {};
 		void *_direct3d_device = nullptr;
-		bool _is_opengl = false;
 		api::color_space _back_buffer_color_space = api::color_space::unknown;
 	};
 }

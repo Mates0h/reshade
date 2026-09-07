@@ -125,11 +125,11 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 
 		const subresource_data sbt_data = { sbt.data(), static_cast<uint32_t>(sbt.size()) };
 
-		return device->create_resource(resource_desc(sbt.size(), memory_heap::gpu_only, resource_usage::shader_resource_non_pixel), &sbt_data, resource_usage::shader_resource_non_pixel, &shader_binding_table);
+		return device->create_resource(resource_desc(sbt.size(), memory_heap::default_, resource_usage::shader_resource_non_pixel), &sbt_data, resource_usage::shader_resource_non_pixel, &shader_binding_table);
 	}
 	bool init_output_texture(device *device)
 	{
-		if (!device->create_resource(resource_desc(800, 600, 1, 1, format::r8g8b8a8_unorm, 1, memory_heap::gpu_only, resource_usage::unordered_access | resource_usage::copy_source), nullptr, resource_usage::unordered_access, &output_texture) ||
+		if (!device->create_resource(resource_desc(800, 600, 1, 1, format::r8g8b8a8_unorm, 1, memory_heap::default_, resource_usage::unordered_access | resource_usage::copy_source), nullptr, resource_usage::unordered_access, &output_texture) ||
 			!device->create_resource_view(output_texture, resource_usage::unordered_access, resource_view_desc(format::r8g8b8a8_unorm), &output_texture_view))
 			return false;
 		return true;
@@ -162,10 +162,10 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 		const subresource_data indices_data = { (void *)indices, sizeof(indices) };
 
 		resource vertices_resource = {};
-		if (!device->create_resource(resource_desc(sizeof(vertices), memory_heap::gpu_only, resource_usage::vertex_buffer | resource_usage::shader_resource_non_pixel), &vertices_data, resource_usage::shader_resource_non_pixel, &vertices_resource))
+		if (!device->create_resource(resource_desc(sizeof(vertices), memory_heap::default_, resource_usage::vertex_buffer | resource_usage::shader_resource_non_pixel), &vertices_data, resource_usage::shader_resource_non_pixel, &vertices_resource))
 			return false;
 		resource indices_resource = {};
-		if (!device->create_resource(resource_desc(sizeof(indices), memory_heap::gpu_only, resource_usage::index_buffer | resource_usage::shader_resource_non_pixel), &indices_data, resource_usage::shader_resource_non_pixel, &indices_resource))
+		if (!device->create_resource(resource_desc(sizeof(indices), memory_heap::default_, resource_usage::index_buffer | resource_usage::shader_resource_non_pixel), &indices_data, resource_usage::shader_resource_non_pixel, &indices_resource))
 			return false;
 
 		acceleration_structure_build_input geometry;
@@ -184,10 +184,10 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 		device->get_acceleration_structure_size(acceleration_structure_type::bottom_level, acceleration_structure_build_flags::prefer_fast_trace, 1, &geometry, &size, &scratch_size, nullptr);
 
 		resource scratch_resource = {};
-		if (!device->create_resource(resource_desc(scratch_size, memory_heap::gpu_only, resource_usage::unordered_access), nullptr, resource_usage::unordered_access, &scratch_resource))
+		if (!device->create_resource(resource_desc(scratch_size, memory_heap::default_, resource_usage::unordered_access), nullptr, resource_usage::unordered_access, &scratch_resource))
 			return false;
 
-		if (!device->create_resource(resource_desc(size, memory_heap::gpu_only, resource_usage::acceleration_structure), nullptr, resource_usage::acceleration_structure, &blas_resource) ||
+		if (!device->create_resource(resource_desc(size, memory_heap::default_, resource_usage::acceleration_structure), nullptr, resource_usage::acceleration_structure, &blas_resource) ||
 			!device->create_resource_view(blas_resource, resource_usage::acceleration_structure, resource_view_desc(), &blas))
 			return false;
 
@@ -219,7 +219,7 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 		const subresource_data instance_data = { (void *)&instance, sizeof(instance) };
 
 		resource instance_resource;
-		if (!device->create_resource(resource_desc(sizeof(instance), memory_heap::gpu_only, resource_usage::shader_resource_non_pixel), &instance_data, resource_usage::shader_resource_non_pixel, &instance_resource))
+		if (!device->create_resource(resource_desc(sizeof(instance), memory_heap::default_, resource_usage::shader_resource_non_pixel), &instance_data, resource_usage::shader_resource_non_pixel, &instance_resource))
 			return false;
 
 		acceleration_structure_build_input geometry;
@@ -233,10 +233,10 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 		device->get_acceleration_structure_size(acceleration_structure_type::top_level, acceleration_structure_build_flags::prefer_fast_trace, 1, &geometry, &size, &scratch_size, nullptr);
 
 		resource scratch_resource = {};
-		if (!device->create_resource(resource_desc(scratch_size, memory_heap::gpu_only, resource_usage::unordered_access), nullptr, resource_usage::unordered_access, &scratch_resource))
+		if (!device->create_resource(resource_desc(scratch_size, memory_heap::default_, resource_usage::unordered_access), nullptr, resource_usage::unordered_access, &scratch_resource))
 			return false;
 
-		if (!device->create_resource(resource_desc(size, memory_heap::gpu_only, resource_usage::acceleration_structure), nullptr, resource_usage::acceleration_structure, &tlas_resource) ||
+		if (!device->create_resource(resource_desc(size, memory_heap::default_, resource_usage::acceleration_structure), nullptr, resource_usage::acceleration_structure, &tlas_resource) ||
 			!device->create_resource_view(tlas_resource, resource_usage::acceleration_structure, resource_view_desc(), &tlas))
 			return false;
 
@@ -276,20 +276,21 @@ struct __declspec(uuid("CF2A5A7D-FF11-434F-AA7B-811A2935A8FE")) runtime_data
 
 static void on_init(effect_runtime *runtime)
 {
-	auto &data = runtime->create_private_data<runtime_data>();
-	data.init(runtime->get_device(), runtime->get_command_queue());
+	const auto data = runtime->create_private_data<runtime_data>();
+	data->init(runtime->get_device(), runtime->get_command_queue());
 }
 static void on_destroy(effect_runtime *runtime)
 {
-	device *const device = runtime->get_device();
-	runtime->get_private_data<runtime_data>().destroy(device);
+	const auto data = runtime->get_private_data<runtime_data>();
+	data->destroy(runtime->get_device());
+
 	runtime->destroy_private_data<runtime_data>();
 }
 
 static void on_present(effect_runtime *runtime)
 {
-	auto &data = runtime->get_private_data<runtime_data>();
-	data.frame(runtime->get_command_queue()->get_immediate_command_list(), runtime->get_current_back_buffer());
+	const auto data = runtime->get_private_data<runtime_data>();
+	data->frame(runtime->get_command_queue()->get_immediate_command_list(), runtime->get_current_back_buffer());
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
@@ -302,9 +303,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 		// Get add-on directory path
 		{
-			TCHAR path[MAX_PATH] = TEXT("");
-			GetModuleFileName(hModule, path, ARRAYSIZE(path));
-			s_addon_path = path;
+			TCHAR module_path[MAX_PATH] = TEXT("");
+			GetModuleFileName(hModule, module_path, ARRAYSIZE(module_path));
+			s_addon_path = module_path;
 			s_addon_path = s_addon_path.parent_path();
 		}
 

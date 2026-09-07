@@ -5,16 +5,28 @@
 
 #include "effect_parser.hpp"
 #include "effect_codegen.hpp"
-#include <cmath> // std::signbit, std::isinf, std::isnan
+#include <cmath> // std::isinf, std::isnan, std::signbit
 #include <cctype> // std::tolower
-#include <cstdio> // std::snprintf
 #include <cassert>
-#include <cstring> // stricmp
-#include <algorithm> // std::find_if, std::max
+#include <cstring> // stricmp, std::memcmp
+#include <charconv> // std::from_chars, std::to_chars
+#include <algorithm> // std::equal, std::find, std::find_if, std::max
 
 using namespace reshadefx;
 
-class codegen_hlsl final : public codegen
+inline char to_digit(unsigned int value)
+{
+	assert(value < 10);
+	return '0' + static_cast<char>(value);
+}
+
+inline uint32_t align_up(uint32_t size, uint32_t alignment, uint32_t elements)
+{
+	alignment -= 1;
+	return ((size + alignment) & ~alignment) * (elements - 1) + size;
+}
+
+class codegen_hlsl : public codegen
 {
 public:
 	codegen_hlsl(unsigned int shader_model, bool debug_info, bool uniforms_to_spec_constants) :
@@ -27,7 +39,7 @@ public:
 		block.reserve(8192);
 	}
 
-private:
+protected:
 	enum class naming
 	{
 		// Name should already be unique, so no additional steps are taken
@@ -38,31 +50,40 @@ private:
 		expression,
 	};
 
-	std::string _cbuffer_block;
-	std::string _current_location;
-	std::unordered_map<id, std::string> _names;
-	std::unordered_map<id, std::string> _blocks;
 	unsigned int _shader_model = 0;
 	bool _debug_info = false;
 	bool _uniforms_to_spec_constants = false;
-	std::string _remapped_semantics[15];
-	std::string _current_function_declaration;
-	std::vector<std::tuple<type, constant, id>> _constant_lookup;
 
 	// Only write compatibility intrinsics to result if they are actually in use
 	bool _uses_bitwise_cast = false;
 	bool _uses_bitwise_intrinsics = false;
 
-	static inline char to_digit(unsigned int value)
+	std::unordered_map<id, std::string> _names;
+	std::unordered_map<id, std::string> _blocks;
+	std::string _cbuffer_block;
+	std::string _current_location;
+	std::string _current_function_declaration;
+
+	std::string _remapped_semantics[15];
+	std::vector<std::tuple<type, constant, id>> _constant_lookup;
+	std::vector<sampler_binding> _sampler_lookup;
+
+	unsigned int _texture_semantic_index = 0;
+
+	void optimize_bindings() override
 	{
-		assert(value < 10);
-		return '0' + static_cast<char>(value);
+		codegen::optimize_bindings();
+
+		if (_shader_model < 40)
+			return;
+
+		for (technique &tech : _module.techniques)
+			for (pass &pass : tech.passes)
+				pass.sampler_bindings.assign(_sampler_lookup.begin(), _sampler_lookup.end());
 	}
 
-	void write_result(module &module) override
+	std::string finalize_preamble() const
 	{
-		module = std::move(_module);
-
 		std::string preamble;
 
 #define IMPLEMENT_INTRINSIC_FALLBACK_ASINT(n) \
@@ -121,7 +142,7 @@ private:
 			"uint" #n " r = 0;" \
 			"for (int i = 0; i < 32; i++) {" \
 				"r *= 2;" \
-				"r += floor(x % 2);" \
+				"r += floor(v % 2);" \
 				"v /= 2;" \
 			"}" \
 			"return r;" \
@@ -159,9 +180,15 @@ private:
 				"struct __sampler1D_int { Texture1D<int> t; SamplerState s; };\n"
 				"struct __sampler2D_int { Texture2D<int> t; SamplerState s; };\n"
 				"struct __sampler3D_int { Texture3D<int> t; SamplerState s; };\n"
+				"struct __sampler1D_int4 { Texture1D<int4> t; SamplerState s; };\n"
+				"struct __sampler2D_int4 { Texture2D<int4> t; SamplerState s; };\n"
+				"struct __sampler3D_int4 { Texture3D<int4> t; SamplerState s; };\n"
 				"struct __sampler1D_uint { Texture1D<uint> t; SamplerState s; };\n"
 				"struct __sampler2D_uint { Texture2D<uint> t; SamplerState s; };\n"
 				"struct __sampler3D_uint { Texture3D<uint> t; SamplerState s; };\n"
+				"struct __sampler1D_uint4 { Texture1D<uint4> t; SamplerState s; };\n"
+				"struct __sampler2D_uint4 { Texture2D<uint4> t; SamplerState s; };\n"
+				"struct __sampler3D_uint4 { Texture3D<uint4> t; SamplerState s; };\n"
 				"struct __sampler1D_float { Texture1D<float> t; SamplerState s; };\n"
 				"struct __sampler2D_float { Texture2D<float> t; SamplerState s; };\n"
 				"struct __sampler3D_float { Texture3D<float> t; SamplerState s; };\n"
@@ -190,14 +217,6 @@ private:
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(2) "\n"
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(3) "\n"
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(4) "\n";
-
-			if (!_cbuffer_block.empty())
-			{
-				if (_shader_model >= 60)
-					preamble += "[[vk::binding(0, 0)]] "; // Descriptor set 0
-
-				preamble += "cbuffer _Globals {\n" + _cbuffer_block + "};\n";
-			}
 		}
 		else
 		{
@@ -245,24 +264,153 @@ private:
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(2) "\n"
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(3) "\n"
 					IMPLEMENT_INTRINSIC_FALLBACK_FIRSTBITHIGH(4) "\n";
+		}
 
-			if (!_cbuffer_block.empty())
+		if (_uniforms_to_spec_constants)
+		{
+			// Apply any specialization constant values set between code generation and assembling
+			for (const uniform &spec_constant : _module.spec_constants)
+			{
+				// Check if this is a split specialization constant and move data accordingly
+				constant initializer_value = spec_constant.initializer_value;
+				if (spec_constant.type.is_scalar() && spec_constant.offset != 0)
+					initializer_value.as_uint[0] = initializer_value.as_uint[spec_constant.offset];
+
+				preamble += "#define SPEC_CONSTANT_" + spec_constant.unique_name + ' ';
+
+				for (unsigned int i = 0; i < spec_constant.type.components(); ++i)
+				{
+					switch (spec_constant.type.base)
+					{
+					case type::t_bool:
+						preamble += initializer_value.as_uint[i] ? "true" : "false";
+						break;
+					case type::t_int:
+						preamble += std::to_string(initializer_value.as_int[i]);
+						break;
+					case type::t_uint:
+						preamble += std::to_string(initializer_value.as_uint[i]);
+						break;
+					case type::t_float:
+						char temp[64];
+						const std::to_chars_result res = std::to_chars(temp, temp + sizeof(temp), initializer_value.as_float[i]
+#if !defined(_HAS_COMPLETE_CHARCONV) || _HAS_COMPLETE_CHARCONV
+							, std::chars_format::scientific, 8
+#endif
+						);
+						if (res.ec == std::errc())
+							preamble.append(temp, res.ptr);
+						else
+							assert(false);
+						break;
+					}
+
+					if (i + 1 < spec_constant.type.components())
+						preamble += ", ";
+				}
+
+				preamble += '\n';
+			}
+		}
+
+		if (!_cbuffer_block.empty())
+		{
+			if (_shader_model >= 40)
+			{
+				if (_shader_model >= 60)
+					preamble += "[[vk::binding(0, 0)]] "; // Descriptor set 0
+
+				preamble += "cbuffer _Globals {\n" + _cbuffer_block + "};\n";
+			}
+			else
 			{
 				preamble += _cbuffer_block;
 			}
-
-			// Offsets were multiplied in 'define_uniform', so adjust total size here accordingly
-			module.total_uniform_size *= 4;
 		}
 
-		module.code.assign(preamble.begin(), preamble.end());
+		return preamble;
+	}
 
-		const std::string &main_block = _blocks.at(0);
-		module.code.insert(module.code.end(), main_block.begin(), main_block.end());
+	std::string finalize_code() const override
+	{
+		std::string code = finalize_preamble();
+
+		// Add global definitions (struct types, global variables, sampler state declarations, ...)
+		code += _blocks.at(0);
+
+		// Add texture and sampler definitions
+		for (const sampler &info : _module.samplers)
+			code += _blocks.at(info.id);
+
+		// Add storage definitions
+		for (const storage &info : _module.storages)
+			code += _blocks.at(info.id);
+
+		// Add function definitions
+		for (const std::unique_ptr<function> &func : _functions)
+			code += _blocks.at(func->id);
+
+		return code;
+	}
+	bool assemble_code_for_entry_point(const std::string &entry_point_name, std::string &code, std::string &, std::string &) const override
+	{
+		const function *const entry_point = find_function(entry_point_name);
+		if (entry_point == nullptr)
+			return false;
+
+		code = finalize_preamble();
+
+		if (_shader_model < 40 && entry_point->type == shader_type::pixel)
+			// Overwrite position semantic in pixel shaders
+			code += "#define POSITION VPOS\n";
+
+		// Add global definitions (struct types, global variables, sampler state declarations, ...)
+		code += _blocks.at(0);
+
+		const auto replace_binding =
+			[](std::string &code, uint32_t binding) {
+				const size_t beg = code.find(": register(") + 12;
+				const size_t end = code.find(')', beg);
+				code.replace(beg, end - beg, std::to_string(binding));
+			};
+
+		// Add referenced texture and sampler definitions
+		for (uint32_t binding = 0; binding < entry_point->referenced_samplers.size(); ++binding)
+		{
+			if (entry_point->referenced_samplers[binding] == 0)
+				continue;
+
+			std::string block_code = _blocks.at(entry_point->referenced_samplers[binding]);
+			replace_binding(block_code, binding);
+			code += block_code;
+		}
+
+		// Add referenced storage definitions
+		for (uint32_t binding = 0; binding < entry_point->referenced_storages.size(); ++binding)
+		{
+			if (entry_point->referenced_storages[binding] == 0)
+				continue;
+
+			std::string block_code = _blocks.at(entry_point->referenced_storages[binding]);
+			replace_binding(block_code, binding);
+			code += block_code;
+		}
+
+		// Add referenced function definitions
+		for (const std::unique_ptr<function> &func : _functions)
+		{
+			if (func->id != entry_point->id &&
+				std::find(entry_point->referenced_functions.begin(), entry_point->referenced_functions.end(), func->id) == entry_point->referenced_functions.end())
+				continue;
+
+			code += _blocks.at(func->id);
+		}
+
+		return true;
 	}
 
 	template <bool is_param = false, bool is_decl = true>
-	void write_type(std::string &s, const type &type) const
+	void write_type(std::string &s, const type &type, texture_format format = texture_format::unknown) const
 	{
 		if constexpr (is_decl)
 		{
@@ -323,7 +471,7 @@ private:
 			s += "float";
 			break;
 		case type::t_struct:
-			s += id_to_name(type.definition);
+			s += id_to_name(type.struct_definition);
 			return;
 		case type::t_sampler1d_int:
 		case type::t_sampler2d_int:
@@ -392,6 +540,11 @@ private:
 			s += "RWTexture";
 			s += to_digit(type.texture_dimension());
 			s += "D<";
+			if (format == texture_format::r8 || format == texture_format::r16 ||
+				format == texture_format::rg8 || format == texture_format::rg16 ||
+				format == texture_format::rgba8 || format == texture_format::rgba16 ||
+				format == texture_format::rgb10a2)
+				s += "unorm ";
 			s += "float";
 			if (type.rows > 1)
 				s += to_digit(type.rows);
@@ -411,6 +564,8 @@ private:
 	{
 		if (data_type.is_array())
 		{
+			assert(data_type.is_bounded_array());
+
 			type elem_type = data_type;
 			elem_type.array_length = 0;
 
@@ -419,10 +574,11 @@ private:
 			for (unsigned int a = 0; a < data_type.array_length; ++a)
 			{
 				write_constant(s, elem_type, a < static_cast<unsigned int>(data.array_data.size()) ? data.array_data[a] : constant {});
-
-				if (a < data_type.array_length - 1)
-					s += ", ";
+				s += ", ";
 			}
+
+			// Remove trailing ", "
+			s.erase(s.size() - 2);
 
 			s += " }";
 			return;
@@ -433,7 +589,7 @@ private:
 			// The can only be zero initializer struct constants
 			assert(data.as_uint[0] == 0);
 
-			s += '(' + id_to_name(data_type.definition) + ")0";
+			s += '(' + id_to_name(data_type.struct_definition) + ")0";
 			return;
 		}
 
@@ -443,7 +599,7 @@ private:
 		if (!data_type.is_scalar())
 			write_type<false, false>(s, data_type), s += '(';
 
-		for (unsigned int i = 0, components = data_type.components(); i < components; ++i)
+		for (unsigned int i = 0; i < data_type.components(); ++i)
 		{
 			switch (data_type.base)
 			{
@@ -457,6 +613,8 @@ private:
 			case type::t_min16uint:
 			case type::t_uint:
 				s += std::to_string(data.as_uint[i]);
+				if (_shader_model >= 40)
+					s += 'u';
 				break;
 			case type::t_min16float:
 			case type::t_float:
@@ -468,17 +626,28 @@ private:
 					s += std::signbit(data.as_float[i]) ? "1.#INF" : "-1.#INF";
 					break;
 				}
-				char temp[64]; // Will be null-terminated by snprintf
-				std::snprintf(temp, sizeof(temp), "%1.8e", data.as_float[i]);
-				s += temp;
+				{
+					char temp[64];
+					const std::to_chars_result res = std::to_chars(temp, temp + sizeof(temp), data.as_float[i]
+#if !defined(_HAS_COMPLETE_CHARCONV) || _HAS_COMPLETE_CHARCONV
+						, std::chars_format::scientific, 8
+#endif
+						);
+					if (res.ec == std::errc())
+						s.append(temp, res.ptr);
+					else
+						assert(false);
+				}
 				break;
 			default:
 				assert(false);
 			}
 
-			if (i < components - 1)
-				s += ", ";
+			s += ", ";
 		}
+
+		// Remove trailing ", "
+		s.erase(s.size() - 2);
 
 		if (!data_type.is_scalar())
 			s += ')';
@@ -524,23 +693,31 @@ private:
 		case texture_format::r32u:
 			s += "uint";
 			break;
+		case texture_format::rgba32i:
+			s += "int4";
+			break;
+		case texture_format::rgba32u:
+			s += "uint4";
+			break;
+		case texture_format::r8:
+		case texture_format::r16:
+		case texture_format::rg8:
+		case texture_format::rg16:
+		case texture_format::rgba8:
+		case texture_format::rgba16:
+		case texture_format::rgb10a2:
+			s += "unorm float4";
+			break;
 		default:
 			assert(false);
 			[[fallthrough]];
 		case texture_format::unknown:
-		case texture_format::r8:
-		case texture_format::r16:
 		case texture_format::r16f:
 		case texture_format::r32f:
-		case texture_format::rg8:
-		case texture_format::rg16:
 		case texture_format::rg16f:
 		case texture_format::rg32f:
-		case texture_format::rgba8:
-		case texture_format::rgba16:
 		case texture_format::rgba16f:
 		case texture_format::rgba32f:
-		case texture_format::rgb10a2:
 			s += "float4";
 			break;
 		}
@@ -576,8 +753,6 @@ private:
 		{
 			if (semantic == "SV_POSITION")
 				return "POSITION"; // For pixel shaders this has to be "VPOS", so need to redefine that in post
-			if (semantic == "VPOS")
-				return "VPOS";
 			if (semantic == "SV_POINTSIZE")
 				return "PSIZE";
 			if (semantic.compare(0, 9, "SV_TARGET") == 0)
@@ -588,6 +763,8 @@ private:
 				return "TEXCOORD0 /* VERTEXID */";
 			if (semantic == "SV_ISFRONTFACE")
 				return "VFACE";
+			if (semantic.compare(0, 3, "SV_") == 0)
+				return semantic; // Unhandled system value semantic
 
 			size_t digit_index = semantic.size() - 1;
 			while (digit_index != 0 && semantic[digit_index] >= '0' && semantic[digit_index] <= '9')
@@ -595,7 +772,9 @@ private:
 			digit_index++;
 
 			const std::string semantic_base = semantic.substr(0, digit_index);
-			const uint32_t semantic_digit = static_cast<uint32_t>(std::strtoul(semantic.c_str() + digit_index, nullptr, 10));
+
+			uint32_t semantic_digit = 0;
+			std::from_chars(semantic.c_str() + digit_index, semantic.c_str() + semantic.size(), semantic_digit);
 
 			if (semantic_base == "TEXCOORD")
 			{
@@ -636,13 +815,14 @@ private:
 
 	static std::string escape_name(std::string name)
 	{
-		static const auto stringicmp = [](const std::string &a, const std::string &b) {
+		static const auto stringicmp =
+			[](const std::string &a, const std::string &b) {
 #ifdef _WIN32
-			return _stricmp(a.c_str(), b.c_str()) == 0;
+				return _stricmp(a.c_str(), b.c_str()) == 0;
 #else
-			return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](std::string::value_type a, std::string::value_type b) { return std::tolower(a) == std::tolower(b); });
+				return std::equal(a.begin(), a.end(), b.begin(), b.end(), [](std::string::value_type a, std::string::value_type b) { return std::tolower(a) == std::tolower(b); });
 #endif
-		};
+			};
 
 		// HLSL compiler complains about "technique" and "pass" names in strict mode (no matter the casing)
 		if (stringicmp(name, "line") ||
@@ -665,10 +845,10 @@ private:
 		block.insert(block.begin(), '\t');
 	}
 
-	id   define_struct(const location &loc, struct_info &info) override
+	id   define_struct(const location &loc, struct_type &info) override
 	{
-		info.definition = make_id();
-		define_name<naming::unique>(info.definition, info.unique_name);
+		const id res = info.id = make_id();
+		define_name<naming::unique>(res, info.unique_name);
 
 		_structs.push_back(info);
 
@@ -676,9 +856,9 @@ private:
 
 		write_location(code, loc);
 
-		code += "struct " + id_to_name(info.definition) + "\n{\n";
+		code += "struct " + id_to_name(res) + "\n{\n";
 
-		for (const struct_member_info &member : info.member_list)
+		for (const member_type &member : info.member_list)
 		{
 			code += '\t';
 			write_type<true>(code, member.type); // HLSL allows interpolation attributes on struct members, so handle this like a parameter
@@ -688,67 +868,51 @@ private:
 				code += '[' + std::to_string(member.type.array_length) + ']';
 
 			if (!member.semantic.empty())
-				code += " : " + convert_semantic(member.semantic, std::max(1u, member.type.components() / 4) * std::max(1u, member.type.array_length));
+				code += " : " + convert_semantic(member.semantic, std::max(1u, member.type.components() / 4u) * std::max(1u, member.type.array_length));
 
 			code += ";\n";
 		}
 
 		code += "};\n";
 
-		return info.definition;
+		return res;
 	}
-	id   define_texture(const location &loc, texture_info &info) override
+	id   define_texture(const location &, texture &info) override
 	{
-		info.id = make_id();
-		info.binding = ~0u;
+		const id res = info.id = make_id();
 
-		define_name<naming::unique>(info.id, info.unique_name);
-
-		if (_shader_model >= 40)
+		if (_shader_model < 40 && !info.semantic.empty())
 		{
-			info.binding = _module.num_texture_bindings;
-			_module.num_texture_bindings += 2;
+			const std::string pixel_size_variable_name = info.semantic + "_PIXEL_SIZE";
 
-			std::string &code = _blocks.at(_current_block);
+			info.semantic_binding = 224 - (1 + _texture_semantic_index++);
+			assert((_module.total_uniform_size / 16) <= info.semantic_binding);
 
-			write_location(code, loc);
-
-			if (_shader_model >= 60)
-				code += "[[vk::binding(" + std::to_string(info.binding + 0) + ", 2)]] "; // Descriptor set 2
-
-			code += "Texture";
-			code += to_digit(static_cast<unsigned int>(info.type));
-			code += "D<";
-			write_texture_format(code, info.format);
-			code += "> __"     + info.unique_name + " : register(t" + std::to_string(info.binding + 0) + "); \n";
-
-			if (_shader_model >= 60)
-				code += "[[vk::binding(" + std::to_string(info.binding + 1) + ", 2)]] "; // Descriptor set 2
-
-			code += "Texture";
-			code += to_digit(static_cast<unsigned int>(info.type));
-			code += "D<";
-			write_texture_format(code, info.format);
-			code += "> __srgb" + info.unique_name + " : register(t" + std::to_string(info.binding + 1) + "); \n";
+			if (_blocks.at(0).find(pixel_size_variable_name) == std::string::npos)
+				_blocks.at(0) += "uniform float2 " + pixel_size_variable_name + " : register(c" + std::to_string(info.semantic_binding) + ");\n";
 		}
 
 		_module.textures.push_back(info);
 
-		return info.id;
+		return res;
 	}
-	id   define_sampler(const location &loc, const texture_info &tex_info, sampler_info &info) override
+	id   define_sampler(const location &loc, const texture &tex_info, sampler &info) override
 	{
-		info.id = make_id();
+		const id res = info.id = create_block();
+		define_name<naming::unique>(res, info.unique_name);
 
-		define_name<naming::unique>(info.id, info.unique_name);
+		std::string &code = _blocks.at(res);
 
-		std::string &code = _blocks.at(_current_block);
+		// Default to a register index equivalent to the entry in the sampler list (this is later overwritten in 'finalize_code_for_entry_point' to a more optimal placement)
+		const uint32_t default_binding = static_cast<uint32_t>(_module.samplers.size());
+		uint32_t sampler_state_binding = 0;
 
 		if (_shader_model >= 40)
 		{
 			// Try and reuse a sampler binding with the same sampler description
-			const auto existing_sampler_it = std::find_if(_module.samplers.begin(), _module.samplers.end(),
-				[&info](const sampler_info &existing_info) {
+			const auto existing_sampler_it = std::find_if(_sampler_lookup.begin(), _sampler_lookup.end(),
+				[this, &info](const sampler_binding &existing_binding) {
+					const sampler_desc &existing_info = _module.samplers[existing_binding.index];
 					return
 						existing_info.filter == info.filter &&
 						existing_info.address_u == info.address_u &&
@@ -758,45 +922,53 @@ private:
 						existing_info.max_lod == info.max_lod &&
 						existing_info.lod_bias == info.lod_bias;
 				});
-			if (existing_sampler_it != _module.samplers.end())
+			if (existing_sampler_it != _sampler_lookup.end())
 			{
-				info.binding = existing_sampler_it->binding;
+				sampler_state_binding = existing_sampler_it->entry_point_binding;
 			}
 			else
 			{
-				info.binding = _module.num_sampler_bindings++;
+				sampler_state_binding = static_cast<uint32_t>(_sampler_lookup.size());
+
+				sampler_binding s;
+				s.index = default_binding;
+				s.entry_point_binding = sampler_state_binding;
+				_sampler_lookup.push_back(std::move(s));
 
 				if (_shader_model >= 60)
-					code += "[[vk::binding(" + std::to_string(info.binding) + ", 1)]] "; // Descriptor set 1
+					_blocks.at(0) += "[[vk::binding(" + std::to_string(sampler_state_binding) + ", 1)]] "; // Descriptor set 1
 
-				code += "SamplerState __s" + std::to_string(info.binding) + " : register(s" + std::to_string(info.binding) + ");\n";
+				_blocks.at(0) += "SamplerState __s" + std::to_string(sampler_state_binding) + " : register(s" + std::to_string(sampler_state_binding) + ");\n";
 			}
 
-			assert(info.srgb == 0 || info.srgb == 1);
-			info.texture_binding = tex_info.binding + info.srgb; // Offset binding by one to choose the SRGB variant
+			if (_shader_model >= 60)
+				code += "[[vk::binding(" + std::to_string(default_binding) + ", 2)]] "; // Descriptor set 2
+
+			code += "Texture";
+			code += to_digit(static_cast<unsigned int>(tex_info.type));
+			code += "D<";
+			write_texture_format(code, tex_info.format);
+			code += "> __" + info.unique_name + "_t : register(t" + std::to_string(default_binding) + "); \n";
 
 			write_location(code, loc);
 
 			code += "static const ";
-			write_type(code, info.type);
-			code += ' ' + id_to_name(info.id) + " = { " + (info.srgb ? "__srgb" : "__") + info.texture_name + ", __s" + std::to_string(info.binding) + " };\n";
+			write_type(code, info.type, tex_info.format);
+			code += ' ' + id_to_name(res) + " = { __" + info.unique_name + "_t, __s" + std::to_string(sampler_state_binding) + " };\n";
 		}
 		else
 		{
-			info.binding = _module.num_sampler_bindings++;
-			info.texture_binding = ~0u; // Unset texture binding
-
 			const unsigned int texture_dimension = info.type.texture_dimension();
 
 			code += "sampler";
 			code += to_digit(texture_dimension);
-			code += "D __" + info.unique_name + "_s : register(s" + std::to_string(info.binding) + ");\n";
+			code += "D __" + info.unique_name + "_s : register(s" + std::to_string(default_binding) + ");\n";
 
 			write_location(code, loc);
 
 			code += "static const ";
-			write_type(code, info.type);
-			code += ' ' + id_to_name(info.id) + " = { __" + info.unique_name + "_s, float" + to_digit(texture_dimension) + '(';
+			write_type(code, info.type, tex_info.format);
+			code += ' ' + id_to_name(res) + " = { __" + info.unique_name + "_s, float" + to_digit(texture_dimension) + '(';
 
 			if (tex_info.semantic.empty())
 			{
@@ -808,7 +980,7 @@ private:
 			}
 			else
 			{
-				// Expect application to set inverse texture size via a define if it is not known here
+				// Expect application to set inverse texture size via a define if it is not known here (see definition in 'define_texture' above)
 				code += tex_info.semantic + "_PIXEL_SIZE";
 			}
 
@@ -817,39 +989,37 @@ private:
 
 		_module.samplers.push_back(info);
 
-		return info.id;
+		return res;
 	}
-	id   define_storage(const location &loc, const texture_info &, storage_info &info) override
+	id   define_storage(const location &loc, const texture &tex_info, storage &info) override
 	{
-		info.id = make_id();
-		info.binding = ~0u;
+		const id res = info.id = create_block();
+		define_name<naming::unique>(res, info.unique_name);
 
-		define_name<naming::unique>(info.id, info.unique_name);
+		// Default to a register index equivalent to the entry in the storage list (this is later overwritten in 'finalize_code_for_entry_point' to a more optimal placement)
+		const uint32_t default_binding = static_cast<uint32_t>(_module.storages.size());
 
 		if (_shader_model >= 50)
 		{
-			info.binding = _module.num_storage_bindings++;
-
-			std::string &code = _blocks.at(_current_block);
+			std::string &code = _blocks.at(res);
 
 			write_location(code, loc);
 
 			if (_shader_model >= 60)
-				code += "[[vk::binding(" + std::to_string(info.binding) + ", 3)]] "; // Descriptor set 3
+				code += "[[vk::binding(" + std::to_string(default_binding) + ", 3)]] "; // Descriptor set 3
 
-			write_type(code, info.type);
-			code += ' ' + info.unique_name + " : register(u" + std::to_string(info.binding) + ");\n";
+			write_type(code, info.type, tex_info.format);
+			code += ' ' + info.unique_name + " : register(u" + std::to_string(default_binding) + ");\n";
 		}
 
 		_module.storages.push_back(info);
 
-		return info.id;
+		return res;
 	}
-	id   define_uniform(const location &loc, uniform_info &info) override
+	id   define_uniform(const location &loc, uniform &info) override
 	{
 		const id res = make_id();
-
-		define_name<naming::unique>(res, info.name);
+		define_name<naming::unique>(res, info.unique_name);
 
 		if (_uniforms_to_spec_constants && info.has_initializer_value)
 		{
@@ -868,7 +1038,7 @@ private:
 			code += ' ' + id_to_name(res) + " = ";
 			if (!info.type.is_scalar())
 				write_type<false, false>(code, info.type);
-			code += "(SPEC_CONSTANT_" + info.name + ");\n";
+			code += "(SPEC_CONSTANT_" + info.unique_name + ");\n";
 
 			_module.spec_constants.push_back(info);
 		}
@@ -881,6 +1051,9 @@ private:
 			// Arrays are not packed in HLSL by default, each element is stored in a four-component vector (16 bytes)
 			if (info.type.is_array())
 				info.size = align_up(info.size, 16, info.type.array_length);
+
+			if (_shader_model < 40)
+				_module.total_uniform_size /= 4;
 
 			// Data is packed into 4-byte boundaries (see https://docs.microsoft.com/windows/win32/direct3dhlsl/dx-graphics-hlsl-packing-rules)
 			// This is already guaranteed, since all types are at least 4-byte in size
@@ -907,6 +1080,7 @@ private:
 
 				// Simply put each uniform into a separate constant register in shader model 3 for now
 				info.offset *= 4;
+				_module.total_uniform_size *= 4;
 			}
 
 			write_type(_cbuffer_block, type);
@@ -964,42 +1138,42 @@ private:
 
 		return res;
 	}
-	id   define_function(const location &loc, function_info &info) override
+	id   define_function(const location &loc, function &info) override
 	{
-		info.definition = make_id();
+		const id res = info.id = make_id();
+		define_name<naming::unique>(res, info.unique_name);
 
-		define_name<naming::unique>(info.definition, info.unique_name);
-
-		assert(_current_block == 0 && _current_function_declaration.empty());
+		assert(_current_block == 0 && (_current_function_declaration.empty() || info.type != shader_type::unknown));
 		std::string &code = _current_function_declaration;
 
 		write_location(code, loc);
 
 		write_type(code, info.return_type);
-		code += ' ' + id_to_name(info.definition) + '(';
+		code += ' ' + id_to_name(res) + '(';
 
-		for (size_t i = 0, num_params = info.parameter_list.size(); i < num_params; ++i)
+		for (member_type &param : info.parameter_list)
 		{
-			struct_member_info &param = info.parameter_list[i];
-
-			param.definition = make_id();
-			define_name<naming::unique>(param.definition, param.name);
+			param.id = make_id();
+			define_name<naming::unique>(param.id, param.name);
 
 			code += '\n';
 			write_location(code, param.location);
 			code += '\t';
 			write_type<true>(code, param.type);
-			code += ' ' + id_to_name(param.definition);
+			code += ' ' + id_to_name(param.id);
 
 			if (param.type.is_array())
 				code += '[' + std::to_string(param.type.array_length) + ']';
 
 			if (!param.semantic.empty())
-				code += " : " + convert_semantic(param.semantic, std::max(1u, param.type.cols / 4) * std::max(1u, param.type.array_length));
+				code += " : " + convert_semantic(param.semantic, std::max(1u, param.type.cols / 4u) * std::max(1u, param.type.array_length));
 
-			if (i < num_params - 1)
-				code += ',';
+			code += ',';
 		}
+
+		// Remove trailing comma
+		if (!info.parameter_list.empty())
+			code.pop_back();
 
 		code += ')';
 
@@ -1008,33 +1182,39 @@ private:
 
 		code += '\n';
 
-		_functions.push_back(std::make_unique<function_info>(info));
+		_functions.push_back(std::make_unique<function>(info));
+		_current_function = _functions.back().get();
 
-		return info.definition;
+		return res;
 	}
 
-	void define_entry_point(function_info &func) override
+	void define_entry_point(function &func) override
 	{
 		// Modify entry point name since a new function is created for it below
+		assert(!func.unique_name.empty() && func.unique_name[0] == 'F');
+		if (_shader_model < 40 || func.type == shader_type::compute)
+			func.unique_name[0] = 'E';
+
 		if (func.type == shader_type::compute)
-			func.unique_name = 'E' + func.unique_name +
+			func.unique_name +=
 				'_' + std::to_string(func.num_threads[0]) +
 				'_' + std::to_string(func.num_threads[1]) +
 				'_' + std::to_string(func.num_threads[2]);
-		else if (_shader_model < 40)
-			func.unique_name = 'E' + func.unique_name;
 
 		if (std::find_if(_module.entry_points.begin(), _module.entry_points.end(),
-				[&func](const entry_point &ep) { return ep.name == func.unique_name; }) != _module.entry_points.end())
+				[&func](const std::pair<std::string, shader_type> &entry_point) {
+					return entry_point.first == func.unique_name;
+				}) != _module.entry_points.end())
 			return;
 
-		_module.entry_points.push_back({ func.unique_name, func.type });
+		_module.entry_points.emplace_back(func.unique_name, func.type);
 
 		// Only have to rewrite the entry point function signature in shader model 3 and for compute (to write "numthreads" attribute)
 		if (_shader_model >= 40 && func.type != shader_type::compute)
 			return;
 
-		function_info entry_point = func;
+		function entry_point = func;
+		entry_point.referenced_functions.push_back(func.id);
 
 		const auto is_color_semantic = [](const std::string &semantic) {
 			return semantic.compare(0, 9, "SV_TARGET") == 0 || semantic.compare(0, 5, "COLOR") == 0; };
@@ -1046,10 +1226,10 @@ private:
 
 		std::string position_variable_name;
 		{
-			if (func.return_type.is_struct() && func.type == shader_type::vertex)
+			if (func.type == shader_type::vertex && func.return_type.is_struct())
 			{
 				// If this function returns a struct which contains a position output, keep track of its member name
-				for (const struct_member_info &member : get_struct(func.return_type.definition).member_list)
+				for (const member_type &member : get_struct(func.return_type.struct_definition).member_list)
 					if (is_position_semantic(member.semantic))
 						position_variable_name = id_to_name(ret) + '.' + member.name;
 			}
@@ -1066,13 +1246,13 @@ private:
 					position_variable_name = id_to_name(ret);
 			}
 		}
-		for (struct_member_info &param : entry_point.parameter_list)
+		for (member_type &param : entry_point.parameter_list)
 		{
-			if (param.type.is_struct() && func.type == shader_type::vertex)
+			if (func.type == shader_type::vertex && param.type.is_struct())
 			{
-				for (const struct_member_info &member : get_struct(param.type.definition).member_list)
+				for (const member_type &member : get_struct(param.type.struct_definition).member_list)
 					if (is_position_semantic(member.semantic))
-						position_variable_name = param.name + '.' + member.name;
+						position_variable_name = id_to_name(param.id) + '.' + member.name;
 			}
 
 			if (is_color_semantic(param.semantic))
@@ -1083,15 +1263,13 @@ private:
 			{
 				if (func.type == shader_type::vertex)
 					// Keep track of the position output variable
-					position_variable_name = param.name;
-				else if (func.type == shader_type::pixel)
-					// Change the position input semantic in pixel shaders
-					param.semantic = "VPOS";
+					position_variable_name = id_to_name(param.id);
 			}
 		}
 
+		assert(_current_function_declaration.empty());
 		if (func.type == shader_type::compute)
-			_blocks.at(_current_block) += "[numthreads(" +
+			_current_function_declaration += "[numthreads(" +
 				std::to_string(func.num_threads[0]) + ", " +
 				std::to_string(func.num_threads[1]) + ", " +
 				std::to_string(func.num_threads[2]) + ")]\n";
@@ -1102,10 +1280,10 @@ private:
 		std::string &code = _blocks.at(_current_block);
 
 		// Clear all color output parameters so no component is left uninitialized
-		for (struct_member_info &param : entry_point.parameter_list)
+		for (const member_type &param : entry_point.parameter_list)
 		{
 			if (is_color_semantic(param.semantic))
-				code += '\t' + param.name + " = float4(0.0, 0.0, 0.0, 0.0);\n";
+				code += '\t' + id_to_name(param.id) + " = float4(0.0, 0.0, 0.0, 0.0);\n";
 		}
 
 		code += '\t';
@@ -1120,37 +1298,42 @@ private:
 		}
 
 		// Call the function this entry point refers to
-		code += id_to_name(func.definition) + '(';
+		code += id_to_name(func.id) + '(';
 
-		for (size_t i = 0, num_params = func.parameter_list.size(); i < num_params; ++i)
+		for (size_t i = 0; i < func.parameter_list.size(); ++i)
 		{
-			code += func.parameter_list[i].name;
+			code += id_to_name(entry_point.parameter_list[i].id);
 
-			if (is_color_semantic(func.parameter_list[i].semantic))
+			const member_type &param = func.parameter_list[i];
+
+			if (is_color_semantic(param.semantic))
 			{
 				code += '.';
-				for (unsigned int k = 0; k < func.parameter_list[i].type.rows; k++)
-					code += "xyzw"[k];
+				for (unsigned int c = 0; c < param.type.rows; c++)
+					code += "xyzw"[c];
 			}
 
-			if (i < num_params - 1)
-				code += ", ";
+			code += ", ";
 		}
+
+		// Remove trailing ", "
+		if (!entry_point.parameter_list.empty())
+			code.erase(code.size() - 2);
 
 		code += ')';
 
 		// Cast the output value to a four-component vector
 		if (is_color_semantic(func.return_semantic))
 		{
-			for (unsigned int i = 0; i < (4 - func.return_type.rows); i++)
+			for (unsigned int c = 0; c < (4 - func.return_type.rows); c++)
 				code += ", 0.0";
 			code += ')';
 		}
 
 		code += ";\n";
 
-		// Shift everything by half a viewport pixel to workaround the different half-pixel offset in D3D9 (https://aras-p.info/blog/2016/04/08/solving-dx9-half-pixel-offset/)
-		if (!position_variable_name.empty() && func.type == shader_type::vertex) // Check if we are in a vertex shader definition
+		// Shift everything by half a viewport pixel to work around the different half-pixel offset in D3D9 (https://aras-p.info/blog/2016/04/08/solving-dx9-half-pixel-offset/)
+		if (func.type == shader_type::vertex && !position_variable_name.empty()) // Check if we are in a vertex shader definition
 			code += '\t' + position_variable_name + ".xy += __TEXEL_SIZE__ * " + position_variable_name + ".ww;\n";
 
 		leave_block_and_return(func.return_type.is_void() ? 0 : ret);
@@ -1166,13 +1349,6 @@ private:
 
 		const id res = make_id();
 
-		static const char s_matrix_swizzles[16][5] = {
-			"_m00", "_m01", "_m02", "_m03",
-			"_m10", "_m11", "_m12", "_m13",
-			"_m20", "_m21", "_m22", "_m23",
-			"_m30", "_m31", "_m32", "_m33"
-		};
-
 		std::string type, expr_code = id_to_name(exp.base);
 
 		for (const expression::operation &op : exp.chain)
@@ -1187,7 +1363,7 @@ private:
 				break;
 			case expression::operation::op_member:
 				expr_code += '.';
-				expr_code += get_struct(op.from.definition).member_list[op.index].name;
+				expr_code += get_struct(op.from.struct_definition).member_list[op.index].name;
 				break;
 			case expression::operation::op_dynamic_index:
 				expr_code += '[' + id_to_name(op.index) + ']';
@@ -1202,10 +1378,18 @@ private:
 			case expression::operation::op_swizzle:
 				expr_code += '.';
 				for (int i = 0; i < 4 && op.swizzle[i] >= 0; ++i)
-					if (op.from.is_matrix())
-						expr_code += s_matrix_swizzles[op.swizzle[i]];
-					else
-						expr_code += "xyzw"[op.swizzle[i]];
+					expr_code += "xyzw"[op.swizzle[i]];
+				break;
+			case expression::operation::op_matrix_swizzle:
+				expr_code += '.';
+				static constexpr const char *s_matrix_swizzles[16] = {
+					"_m00", "_m01", "_m02", "_m03",
+					"_m10", "_m11", "_m12", "_m13",
+					"_m20", "_m21", "_m22", "_m23",
+					"_m30", "_m31", "_m32", "_m33"
+				};
+				for (int i = 0; i < 4 && op.swizzle[i] >= 0; ++i)
+					expr_code += s_matrix_swizzles[op.swizzle[i]];
 				break;
 			}
 		}
@@ -1235,20 +1419,13 @@ private:
 
 		code += '\t' + id_to_name(exp.base);
 
-		static const char s_matrix_swizzles[16][5] = {
-			"_m00", "_m01", "_m02", "_m03",
-			"_m10", "_m11", "_m12", "_m13",
-			"_m20", "_m21", "_m22", "_m23",
-			"_m30", "_m31", "_m32", "_m33"
-		};
-
 		for (const expression::operation &op : exp.chain)
 		{
 			switch (op.op)
 			{
 			case expression::operation::op_member:
 				code += '.';
-				code += get_struct(op.from.definition).member_list[op.index].name;
+				code += get_struct(op.from.struct_definition).member_list[op.index].name;
 				break;
 			case expression::operation::op_dynamic_index:
 				code += '[' + id_to_name(op.index) + ']';
@@ -1259,10 +1436,18 @@ private:
 			case expression::operation::op_swizzle:
 				code += '.';
 				for (int i = 0; i < 4 && op.swizzle[i] >= 0; ++i)
-					if (op.from.is_matrix())
-						code += s_matrix_swizzles[op.swizzle[i]];
-					else
-						code += "xyzw"[op.swizzle[i]];
+					code += "xyzw"[op.swizzle[i]];
+				break;
+			case expression::operation::op_matrix_swizzle:
+				code += '.';
+				static constexpr const char *s_matrix_swizzles[16] = {
+					"_m00", "_m01", "_m02", "_m03",
+					"_m10", "_m11", "_m12", "_m13",
+					"_m20", "_m21", "_m22", "_m23",
+					"_m30", "_m31", "_m32", "_m33"
+				};
+				for (int i = 0; i < 4 && op.swizzle[i] >= 0; ++i)
+					code += s_matrix_swizzles[op.swizzle[i]];
 				break;
 			}
 		}
@@ -1493,13 +1678,15 @@ private:
 
 		code += id_to_name(function) + '(';
 
-		for (size_t i = 0, num_args = args.size(); i < num_args; ++i)
+		for (const expression &arg : args)
 		{
-			code += id_to_name(args[i].base);
-
-			if (i < num_args - 1)
-				code += ", ";
+			code += id_to_name(arg.base);
+			code += ", ";
 		}
+
+		// Remove trailing ", "
+		if (!args.empty())
+			code.erase(code.size() - 2);
 
 		code += ");\n";
 
@@ -1526,17 +1713,7 @@ private:
 
 		code += '\t';
 
-		if (_shader_model >= 40 && (
-			(intrinsic >= tex1Dsize0 && intrinsic <= tex3Dsize2) ||
-			(intrinsic >= atomicAdd0 && intrinsic <= atomicCompareExchange1) ||
-			(!(res_type.is_floating_point() || _shader_model >= 67) && (intrinsic >= tex1D0 && intrinsic <= tex3Dlod1))))
-		{
-			// Implementation of the 'tex2Dsize' intrinsic passes the result variable into 'GetDimensions' as output argument
-			// Same with the atomic intrinsics, which use the last parameter to return the previous value of the target
-			write_type(code, res_type);
-			code += ' ' + id_to_name(res) + "; ";
-		}
-		else if (!res_type.is_void())
+		if (!res_type.is_void())
 		{
 			write_type(code, res_type);
 			code += ' ' + id_to_name(res) + " = ";
@@ -1581,13 +1758,15 @@ private:
 		else
 			write_type<false, false>(code, res_type), code += '(';
 
-		for (size_t i = 0, num_args = args.size(); i < num_args; ++i)
+		for (const expression &arg : args)
 		{
-			code += id_to_name(args[i].base);
-
-			if (i < num_args - 1)
-				code += ", ";
+			code += id_to_name(arg.base);
+			code += ", ";
 		}
+
+		// Remove trailing ", "
+		if (!args.empty())
+			code.erase(code.size() - 2);
 
 		if (res_type.is_array())
 			code += " }";
@@ -1730,7 +1909,7 @@ private:
 			// Check 'condition_name' instead of 'condition_value' here to also catch cases where a constant boolean expression was passed in as loop condition
 			bool use_break_statement_for_condition = (_shader_model < 40 && condition_name != "true") &&
 				std::find_if(_module.uniforms.begin(), _module.uniforms.end(),
-					[&](const uniform_info &info) {
+					[&](const uniform &info) {
 						return condition_data.find(info.name) != std::string::npos || condition_name.find(info.name) != std::string::npos;
 					}) != _module.uniforms.end();
 
@@ -1916,6 +2095,15 @@ private:
 			_blocks.erase(case_block);
 	}
 
+	void emit_pragma(const std::string &pragma) override
+	{
+		if (pragma == "reshade skipoptimization" || pragma == "reshade nooptimization")
+			return;
+
+		std::string &code = _blocks.at(_current_block);
+		code += "#pragma " + pragma + '\n';
+	}
+
 	id   create_block() override
 	{
 		const id res = make_id();
@@ -1946,7 +2134,7 @@ private:
 
 		code += "\tdiscard;\n";
 
-		const type &return_type = _functions.back()->return_type;
+		const type &return_type = _current_function->return_type;
 		if (!return_type.is_void())
 		{
 			// HLSL compiler doesn't handle discard like a shader kill
@@ -1955,6 +2143,10 @@ private:
 			code += "\treturn ";
 			write_constant(code, return_type, constant());
 			code += ";\n";
+		}
+		else
+		{
+			code += "\treturn;\n";
 		}
 
 		return set_block(0);
@@ -1965,7 +2157,7 @@ private:
 			return 0;
 
 		// Skip implicit return statement
-		if (!_functions.back()->return_type.is_void() && value == 0)
+		if (!_current_function->return_type.is_void() && value == 0)
 			return set_block(0);
 
 		std::string &code = _blocks.at(_current_block);
@@ -2014,14 +2206,18 @@ private:
 	}
 	void leave_function() override
 	{
-		assert(_last_block != 0);
+		assert(_current_function != nullptr && _last_block != 0);
 
-		_blocks.at(0) += _current_function_declaration + "{\n" + _blocks.at(_last_block) + "}\n";
+		_blocks.emplace(_current_function->id, _current_function_declaration + "{\n" + _blocks.at(_last_block) + "}\n");
+
+		_current_function = nullptr;
 		_current_function_declaration.clear();
 	}
 };
 
+#ifndef RESHADEFX_CODEGEN_HLSL_INLINE
 codegen *reshadefx::create_codegen_hlsl(unsigned int shader_model, bool debug_info, bool uniforms_to_spec_constants)
 {
 	return new codegen_hlsl(shader_model, debug_info, uniforms_to_spec_constants);
 }
+#endif

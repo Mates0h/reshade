@@ -9,7 +9,7 @@ The ReShade FX shader compiler contained in this repository is standalone, so ca
 
 ## Building
 
-You'll need Visual Studio 2017 or higher to build ReShade and Python for the `gl3w` dependency.
+You'll need Visual Studio 2017 or higher to build ReShade. And Python in the PATH environment variable for the `glad` dependency to build.
 
 1. Clone this repository including all Git submodules\
 ```git clone --recurse-submodules https://github.com/crosire/reshade```
@@ -29,7 +29,7 @@ A quick overview of what some of the source code files contain:
 |[effect_preprocessor.cpp](source/effect_preprocessor.cpp)             |C-like preprocessor implementation                                     |
 |[hook.cpp](source/hook.cpp)                                           |Wrapper around MinHook which tracks associated function pointers       |
 |[hook_manager.cpp](source/hook_manager.cpp)                           |Automatic hook installation based on DLL exports                       |
-|[input.cpp](source/input.cpp)                                         |Keyboard and mouse input management and window message queue hooks     |
+|[input.cpp](source/input.cpp)                                         |Keyboard and mouse input management                                    |
 |[runtime.cpp](source/runtime.cpp)                                     |Core ReShade runtime including effect and preset management            |
 |[runtime_gui.cpp](source/runtime_gui.cpp)                             |Overlay rendering and everything user interface related                |
 

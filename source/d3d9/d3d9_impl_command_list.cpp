@@ -5,8 +5,8 @@
 
 #include "d3d9_impl_device.hpp"
 #include "d3d9_impl_type_convert.hpp"
-#include <string>
-#include <algorithm>
+#include <cstring> // std::strlen
+#include <algorithm> // std::max
 #include <utf8/unchecked.h>
 
 static void convert_cube_uv_to_vec(D3DCUBEMAP_FACES face, float u, float v, float &x, float &y, float &z)
@@ -17,41 +17,39 @@ static void convert_cube_uv_to_vec(D3DCUBEMAP_FACES face, float u, float v, floa
 	switch (face)
 	{
 	case D3DCUBEMAP_FACE_POSITIVE_X:
-		x =  1.0f;
-		y =  v;
+		x = +1;
+		y = -v;
 		z = -u;
 		break;
 	case D3DCUBEMAP_FACE_NEGATIVE_X:
-		x = -1.0f;
-		y =  v;
-		z =  u;
+		x = -1;
+		y = -v;
+		z = +u;
 		break;
 	case D3DCUBEMAP_FACE_POSITIVE_Y:
-		x =  u;
-		y =  1.0f;
-		z = -v;
+		x = +u;
+		y = +1;
+		z = +v;
 		break;
 	case D3DCUBEMAP_FACE_NEGATIVE_Y:
-		x =  u;
-		y = -1.0f;
-		z =  v;
+		x = +u;
+		y = -1;
+		z = -v;
 		break;
 	case D3DCUBEMAP_FACE_POSITIVE_Z:
-		x =  u;
-		y =  v;
-		z =  1.0f;
+		x = +u;
+		y = -v;
+		z = +1;
 		break;
 	case D3DCUBEMAP_FACE_NEGATIVE_Z:
 		x = -u;
-		y =  v;
-		z = -1.0f;
+		y = -v;
+		z = -1;
 		break;
 	}
 }
 
-extern const RECT *convert_box_to_rect(const reshade::api::subresource_box *box, RECT &rect);
-
-void reshade::d3d9::device_impl::begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds)
+void reshade::d3d9::device_impl::begin_render_pass2(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags)
 {
 	DWORD clear_flags = 0;
 
@@ -63,9 +61,14 @@ void reshade::d3d9::device_impl::begin_render_pass(uint32_t count, const api::re
 		if (rts[i].load_op == api::render_pass_load_op::clear)
 			clear_flags |= D3DCLEAR_TARGET; // This will clear all render targets, not just the current one ...
 	}
+#ifndef NDEBUG
+	if (clear_flags & D3DCLEAR_TARGET)
+		for (uint32_t k = 0; k < count; ++k)
+			assert(rts[k].load_op == api::render_pass_load_op::clear || rts[k].load_op == api::render_pass_load_op::discard);
+#endif
 
 	api::resource_view depth_stencil_handle = {};
-	if (ds != nullptr && ds->view.handle != 0)
+	if (ds != nullptr && ds->view != 0)
 	{
 		depth_stencil_handle = ds->view;
 
@@ -83,7 +86,7 @@ void reshade::d3d9::device_impl::begin_render_pass(uint32_t count, const api::re
 			0, nullptr,
 			clear_flags,
 			rts != nullptr ? D3DCOLOR_COLORVALUE(rts->clear_color[0], rts->clear_color[1], rts->clear_color[2], rts->clear_color[3]) : 0,
-			depth_stencil_handle.handle != 0 ? ds->clear_depth : 0.0f, depth_stencil_handle.handle != 0 ? ds->clear_stencil : 0);
+			depth_stencil_handle != 0 ? ds->clear_depth : 0.0f, depth_stencil_handle != 0 ? ds->clear_stencil : 0);
 	}
 }
 void reshade::d3d9::device_impl::end_render_pass()
@@ -109,7 +112,9 @@ void reshade::d3d9::device_impl::bind_render_targets_and_depth_stencil(uint32_t 
 
 		// Unset remaining render targets
 		for (DWORD i = count; i < _caps.NumSimultaneousRTs; ++i)
+		{
 			_orig->SetRenderTarget(i, nullptr);
+		}
 
 		_orig->SetRenderState(D3DRS_SRGBWRITEENABLE, srgb_write_enable);
 	}
@@ -121,12 +126,14 @@ void reshade::d3d9::device_impl::bind_pipeline(api::pipeline_stage stages, api::
 {
 	if (pipeline.handle & 1)
 	{
+		const auto pipeline_object = reinterpret_cast<pipeline_impl *>(pipeline.handle ^ 1);
+
 		// This is a pipeline handle created with 'device_impl::create_pipeline', which does not support partial binding of its state
 		assert(stages == api::pipeline_stage::all_graphics);
-		reinterpret_cast<pipeline_impl *>(pipeline.handle ^ 1)->state_block->Apply();
+		pipeline_object->state_block->Apply();
 
-		if ((stages & api::pipeline_stage::input_assembler) != 0)
-			_current_prim_type = reinterpret_cast<pipeline_impl *>(pipeline.handle ^ 1)->prim_type;
+		if ((stages & api::pipeline_stage::input_assembler) != 0 && pipeline_object->prim_type != 0)
+			_current_prim_type = pipeline_object->prim_type;
 		return;
 	}
 
@@ -157,13 +164,20 @@ void reshade::d3d9::device_impl::bind_pipeline_states(uint32_t count, const api:
 			break;
 		case api::dynamic_state::front_counter_clockwise:
 		case api::dynamic_state::depth_bias_clamp:
-		case api::dynamic_state::alpha_to_coverage_enable:
 		case api::dynamic_state::logic_op_enable:
 		case api::dynamic_state::logic_op:
 		case api::dynamic_state::back_stencil_read_mask:
 		case api::dynamic_state::back_stencil_write_mask:
 		case api::dynamic_state::back_stencil_reference_value:
 			assert(false);
+			break;
+		case api::dynamic_state::alpha_to_coverage_enable:
+			// See "Advanced DX9 Capabilities for ATI Radeon Cards" document
+			_orig->SetRenderState(D3DRS_POINTSIZE, values[i] ? MAKEFOURCC('A', '2', 'M', '1') : MAKEFOURCC('A', '2', 'M', '0'));
+
+			_orig->SetRenderState(D3DRS_ADAPTIVETESS_Y, values[i] ? MAKEFOURCC('A', 'T', 'O', 'C') : 0);
+			if (values[i])
+				_orig->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
 			break;
 		case api::dynamic_state::color_blend_op:
 		case api::dynamic_state::alpha_blend_op:
@@ -214,15 +228,15 @@ void reshade::d3d9::device_impl::bind_viewports(uint32_t first, uint32_t count, 
 
 	assert(count == 1 && viewports != nullptr);
 
-	D3DVIEWPORT9 d3d_viewport;
-	d3d_viewport.X = static_cast<DWORD>(viewports->x);
-	d3d_viewport.Y = static_cast<DWORD>(viewports->y);
-	d3d_viewport.Width = static_cast<DWORD>(viewports->width);
-	d3d_viewport.Height = static_cast<DWORD>(viewports->height);
-	d3d_viewport.MinZ = viewports->min_depth;
-	d3d_viewport.MaxZ = viewports->max_depth;
+	D3DVIEWPORT9 internal_viewport;
+	internal_viewport.X = static_cast<DWORD>(viewports->x);
+	internal_viewport.Y = static_cast<DWORD>(viewports->y);
+	internal_viewport.Width = static_cast<DWORD>(viewports->width);
+	internal_viewport.Height = static_cast<DWORD>(viewports->height);
+	internal_viewport.MinZ = viewports->min_depth;
+	internal_viewport.MaxZ = viewports->max_depth;
 
-	_orig->SetViewport(&d3d_viewport);
+	_orig->SetViewport(&internal_viewport);
 }
 void reshade::d3d9::device_impl::bind_scissor_rects(uint32_t first, uint32_t count, const api::rect *rects)
 {
@@ -240,8 +254,37 @@ void reshade::d3d9::device_impl::bind_scissor_rects(uint32_t first, uint32_t cou
 	_orig->SetScissorRect(reinterpret_cast<const RECT *>(rects));
 }
 
-void reshade::d3d9::device_impl::push_constants(api::shader_stage stages, api::pipeline_layout, uint32_t, uint32_t first, uint32_t count, const void *values)
+void reshade::d3d9::device_impl::push_constants(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, uint32_t first, uint32_t count, const void *values)
 {
+	if (layout == 0 || reinterpret_cast<pipeline_layout_impl *>(layout.handle)->ranges[layout_param].binding == UINT32_MAX)
+	{
+		switch (layout_param)
+		{
+		case 2:
+			assert(stages == api::shader_stage::vertex);
+			break;
+		case 3:
+			assert(stages == api::shader_stage::vertex);
+			_orig->SetVertexShaderConstantI(first / 4, static_cast<const int *>(values), count / 4);
+			return;
+		case 4:
+			assert(stages == api::shader_stage::vertex);
+			_orig->SetVertexShaderConstantB(first, static_cast<const BOOL *>(values), count);
+			return;
+		case 5:
+			assert(stages == api::shader_stage::pixel);
+			break;
+		case 6:
+			assert(stages == api::shader_stage::pixel);
+			_orig->SetPixelShaderConstantI(first / 4, static_cast<const int *>(values), count / 4);
+			return;
+		case 7:
+			assert(stages == api::shader_stage::pixel);
+			_orig->SetPixelShaderConstantB(first, static_cast<const BOOL *>(values), count);
+			return;
+		}
+	}
+
 	assert((first % 4) == 0 && (count % 4) == 0);
 
 	first /= 4;
@@ -263,10 +306,10 @@ void reshade::d3d9::device_impl::push_constants(api::shader_stage stages, api::p
 }
 void reshade::d3d9::device_impl::push_descriptors(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, const api::descriptor_table_update &update)
 {
-	assert(update.table.handle == 0 && update.array_offset == 0);
+	assert(update.table == 0 && update.array_offset == 0);
 
 	uint32_t first = update.binding;
-	if (layout.handle != 0 && layout != global_pipeline_layout)
+	if (layout != 0)
 	{
 		const api::descriptor_range &range = reinterpret_cast<pipeline_layout_impl *>(layout.handle)->ranges[layout_param];
 
@@ -298,7 +341,7 @@ void reshade::d3d9::device_impl::push_descriptors(api::shader_stage stages, api:
 			for (uint32_t i = 0; i < count; ++i)
 			{
 				const auto &descriptor = static_cast<const api::sampler *>(update.descriptors)[i];
-				if (descriptor.handle == 0)
+				if (descriptor == 0)
 					continue;
 
 				const sampler_impl *const sampler_instance = reinterpret_cast<const sampler_impl *>(descriptor.handle);
@@ -313,7 +356,7 @@ void reshade::d3d9::device_impl::push_descriptors(api::shader_stage stages, api:
 				_orig->SetTexture(first + i, reinterpret_cast<IDirect3DBaseTexture9 *>(descriptor.view.handle & ~1ull));
 				_orig->SetSamplerState(first + i, D3DSAMP_SRGBTEXTURE, descriptor.view.handle & 1);
 
-				if (descriptor.sampler.handle == 0)
+				if (descriptor.sampler == 0)
 					continue;
 
 				const sampler_impl *const sampler_instance = reinterpret_cast<const sampler_impl *>(descriptor.sampler.handle);
@@ -335,7 +378,7 @@ void reshade::d3d9::device_impl::push_descriptors(api::shader_stage stages, api:
 		}
 	}
 }
-void reshade::d3d9::device_impl::bind_descriptor_tables(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables)
+void reshade::d3d9::device_impl::bind_descriptor_tables2(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables, uint32_t, const uint32_t *)
 {
 	for (uint32_t i = 0; i < count; ++i)
 	{
@@ -351,16 +394,16 @@ void reshade::d3d9::device_impl::bind_descriptor_tables(api::shader_stage stages
 
 void reshade::d3d9::device_impl::bind_index_buffer(api::resource buffer, [[maybe_unused]] uint64_t offset, [[maybe_unused]] uint32_t index_size)
 {
-#ifndef NDEBUG
 	assert(offset == 0);
 
-	if (buffer.handle != 0)
+#ifndef NDEBUG
+	if (buffer != 0)
 	{
 		assert(index_size == 2 || index_size == 4);
 
 		D3DINDEXBUFFER_DESC desc;
 		reinterpret_cast<IDirect3DIndexBuffer9 *>(buffer.handle)->GetDesc(&desc);
-		assert(desc.Format == (index_size == 2 ? D3DFMT_INDEX16 : D3DFMT_INDEX32));
+		assert(desc.Format == (index_size >= 4 ? D3DFMT_INDEX32 : D3DFMT_INDEX16));
 	}
 #endif
 
@@ -411,7 +454,7 @@ void reshade::d3d9::device_impl::draw_indexed(uint32_t index_count, uint32_t ins
 	{
 		com_ptr<IDirect3DVertexBuffer9> stream;
 		UINT offset = 0, stride = 0;
-		if (SUCCEEDED(_orig->GetStreamSource(0, &stream, &offset, &stride)))
+		if (SUCCEEDED(_orig->GetStreamSource(0, &stream, &offset, &stride)) && stream != nullptr)
 		{
 			D3DVERTEXBUFFER_DESC desc;
 			if (SUCCEEDED(stream->GetDesc(&desc)))
@@ -471,374 +514,280 @@ void reshade::d3d9::device_impl::copy_buffer_to_texture(api::resource, uint64_t,
 }
 void reshade::d3d9::device_impl::copy_texture_region(api::resource src, uint32_t src_subresource, const api::subresource_box *src_box, api::resource dst, uint32_t dst_subresource, const api::subresource_box *dst_box, api::filter_mode filter)
 {
-	assert(src.handle != 0 && dst.handle != 0);
+	assert(src != 0 && dst != 0);
 
 	const auto src_object = reinterpret_cast<IDirect3DResource9 *>(src.handle);
 	const auto dst_object = reinterpret_cast<IDirect3DResource9 *>(dst.handle);
 
+	DWORD src_level = src_subresource;
+	D3DCUBEMAP_FACES src_face = D3DCUBEMAP_FACE_FORCE_DWORD;
+	com_ptr<IDirect3DSurface9> src_surface;
+	switch (IDirect3DResource9_GetType(src_object))
+	{
+	case D3DRTYPE_SURFACE:
+		src_surface = static_cast<IDirect3DSurface9 *>(src_object);
+		break;
+	case D3DRTYPE_TEXTURE:
+		if (FAILED(IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(src_object), src_level, &src_surface)))
+			return;
+		break;
+	case D3DRTYPE_CUBETEXTURE:
+		{
+			const DWORD src_level_count = IDirect3DCubeTexture9_GetLevelCount(static_cast<IDirect3DBaseTexture9 *>(src_object));
+			src_face = static_cast<D3DCUBEMAP_FACES>(src_subresource / src_level_count);
+			src_level %= src_level_count;
+			if (FAILED(IDirect3DCubeTexture9_GetCubeMapSurface(static_cast<IDirect3DCubeTexture9 *>(src_object), src_face, src_level, &src_surface)))
+				return;
+		}
+		break;
+	case D3DRTYPE_VOLUMETEXTURE:
+		if (src_level == 0 && IDirect3DResource9_GetType(dst_object) == D3DRTYPE_VOLUMETEXTURE)
+		{
+			D3DVOLUME_DESC src_desc;
+			IDirect3DVolumeTexture9_GetLevelDesc(static_cast<IDirect3DVolumeTexture9 *>(src_object), 0, &src_desc);
+			D3DVOLUME_DESC dst_desc;
+			IDirect3DVolumeTexture9_GetLevelDesc(static_cast<IDirect3DVolumeTexture9 *>(dst_object), 0, &dst_desc);
+
+			if (dst_desc.Pool == D3DPOOL_DEFAULT && src_desc.Pool == D3DPOOL_SYSTEMMEM)
+			{
+				_orig->UpdateTexture(static_cast<IDirect3DVolumeTexture9 *>(src_object), static_cast<IDirect3DVolumeTexture9 *>(dst_object));
+				return;
+			}
+		}
+		[[fallthrough]];
+	default:
+		assert(false); // Not implemented
+		return;
+	}
+
+	DWORD dst_level = dst_subresource;
+	D3DCUBEMAP_FACES dst_face = D3DCUBEMAP_FACE_FORCE_DWORD;
+	com_ptr<IDirect3DSurface9> dst_surface;
+	switch (IDirect3DResource9_GetType(dst_object))
+	{
+	case D3DRTYPE_SURFACE:
+		dst_surface = static_cast<IDirect3DSurface9 *>(dst_object);
+		break;
+	case D3DRTYPE_TEXTURE:
+		if (FAILED(IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(dst_object), dst_level, &dst_surface)))
+			return;
+		break;
+	case D3DRTYPE_CUBETEXTURE:
+		{
+			const DWORD dst_level_count = IDirect3DCubeTexture9_GetLevelCount(static_cast<IDirect3DBaseTexture9 *>(dst_object));
+			dst_face = static_cast<D3DCUBEMAP_FACES>(dst_subresource / dst_level_count);
+			dst_level %= dst_level_count;
+			if (FAILED(IDirect3DCubeTexture9_GetCubeMapSurface(static_cast<IDirect3DCubeTexture9 *>(dst_object), dst_face, dst_level, &dst_surface)))
+				return;
+		}
+		break;
+	default:
+		assert(false); // Not implemented
+		return;
+	}
+
+	D3DSURFACE_DESC src_desc;
+	IDirect3DSurface9_GetDesc(src_surface.get(), &src_desc);
+	D3DSURFACE_DESC dst_desc;
+	IDirect3DSurface9_GetDesc(dst_surface.get(), &dst_desc);
+
 	RECT src_rect, dst_rect;
-	bool src_is_regular_texture = false;
-	bool dst_is_regular_texture = false;
+	com_ptr<IDirect3DSurface9> target_surface = dst_surface;
+
+	if (dst_desc.Pool == D3DPOOL_DEFAULT && src_desc.Pool == D3DPOOL_SYSTEMMEM)
+	{
+		if (src_level == 0 && dst_level == 0 && src_box == nullptr && dst_box == nullptr && src_object != src_surface.get() && dst_object != dst_surface.get())
+		{
+			_orig->UpdateTexture(static_cast<IDirect3DBaseTexture9 *>(src_object), static_cast<IDirect3DBaseTexture9 *>(dst_object));
+		}
+		else
+		{
+			_orig->UpdateSurface(
+				src_surface.get(), convert_subresource_box_to_rect(src_box, src_rect),
+				dst_surface.get(), reinterpret_cast<const POINT *>(convert_subresource_box_to_rect(dst_box, dst_rect)));
+		}
+		return;
+	}
+	if (dst_desc.Pool == D3DPOOL_SYSTEMMEM)
+	{
+		if (src_box == nullptr && dst_box == nullptr && src_desc.Pool == D3DPOOL_DEFAULT && (src_desc.Usage & D3DUSAGE_RENDERTARGET) != 0)
+		{
+			_orig->GetRenderTargetData(src_surface.get(), dst_surface.get());
+			return;
+		}
+		else
+		{
+			dst_desc.Pool = D3DPOOL_DEFAULT;
+			dst_desc.Usage = D3DUSAGE_RENDERTARGET;
+			target_surface.reset();
+
+			if (FAILED(create_surface_replacement(dst_desc, &target_surface)))
+				return;
+		}
+	}
+
+	assert(dst_desc.Pool == D3DPOOL_DEFAULT && (src_desc.Pool == D3DPOOL_DEFAULT || src_desc.Pool == D3DPOOL_MANAGED || src_desc.Pool == D3DPOOL_MANAGED_EX));
+
+	if (dst_object != dst_surface.get() && dst_subresource == 0 && (src_desc.Usage & D3DUSAGE_DEPTHSTENCIL) != 0 && src_desc.MultiSampleType != D3DMULTISAMPLE_NONE && dst_desc.MultiSampleType == D3DMULTISAMPLE_NONE && check_capability(api::device_caps::resolve_depth_stencil))
+	{
+		// Capture and restore state
+		_backup_state.capture();
+
+		_orig->SetTexture(0, static_cast<IDirect3DBaseTexture9 *>(dst_object));
+		_orig->SetDepthStencilSurface(src_surface.get());
+
+		// Dummy draw call, required to ensure the destination texture is set before the resolve operation is triggered below
+		_orig->SetRenderState(D3DRS_ZENABLE, FALSE);
+		_orig->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+		_orig->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
+		const float dummy_point[3] = { 0.0, 0.0f, 0.0f };
+		_orig->DrawPrimitiveUP(D3DPT_POINTLIST, 1, dummy_point, sizeof(dummy_point));
+
+		// Trigger multisampled depth buffer resolve operation (see "Advanced DX9 Capabilities for ATI Radeon Cards" document)
+		_orig->SetRenderState(D3DRS_POINTSIZE, 0x7FA05000 /* RESZ code */);
+
+		_backup_state.apply_and_release();
+		return;
+	}
 
 	// Default to no filtering if no stretching needs to be performed (prevents artifacts when copying depth data)
 	D3DTEXTUREFILTERTYPE stretch_filter_type = D3DTEXF_POINT;
 	if ((src_box != nullptr || dst_box != nullptr) && (filter == api::filter_mode::min_mag_mip_linear || filter == api::filter_mode::min_mag_linear_mip_point))
 		stretch_filter_type = D3DTEXF_LINEAR;
 
-	switch (IDirect3DResource9_GetType(src_object) | (IDirect3DResource9_GetType(dst_object) << 4))
+	// 'StretchRect' only supports plain depth-stencil surfaces, not textures
+	if (src_object != src_surface.get() && ((_caps.DevCaps2 & D3DDEVCAPS2_CAN_STRETCHRECT_FROM_TEXTURES) == 0 || ((src_desc.Usage | dst_desc.Usage) & D3DUSAGE_DEPTHSTENCIL) != 0))
 	{
-		case D3DRTYPE_SURFACE | (D3DRTYPE_SURFACE << 4):
-		{
-			assert(src_subresource == 0 && dst_subresource == 0);
-
-			com_ptr<IDirect3DSurface9> src_surface = static_cast<IDirect3DSurface9 *>(src_object);
-			com_ptr<IDirect3DSurface9> dst_surface = static_cast<IDirect3DSurface9 *>(dst_object);
-
-			D3DSURFACE_DESC src_desc;
-			IDirect3DSurface9_GetDesc(src_surface.get(), &src_desc);
-			D3DSURFACE_DESC dst_desc;
-			IDirect3DSurface9_GetDesc(dst_surface.get(), &dst_desc);
-
-			if (src_desc.Pool == D3DPOOL_DEFAULT && dst_desc.Pool == D3DPOOL_SYSTEMMEM)
-			{
-				assert(src_box == nullptr && dst_box == nullptr);
-				assert((src_desc.Usage & D3DUSAGE_RENDERTARGET) != 0);
-				_orig->GetRenderTargetData(src_surface.get(), dst_surface.get());
-				return;
-			}
-			if (src_desc.Pool == D3DPOOL_SYSTEMMEM && dst_desc.Pool == D3DPOOL_DEFAULT)
-			{
-				_orig->UpdateSurface(
-					src_surface.get(), convert_box_to_rect(src_box, src_rect),
-					dst_surface.get(), reinterpret_cast<const POINT *>(convert_box_to_rect(dst_box, dst_rect)));
-				return;
-			}
-
-			assert(src_desc.Pool == D3DPOOL_DEFAULT && dst_desc.Pool == D3DPOOL_DEFAULT);
-
-			_orig->StretchRect(
-				src_surface.get(), convert_box_to_rect(src_box, src_rect),
-				dst_surface.get(), convert_box_to_rect(dst_box, dst_rect), stretch_filter_type);
+		if (_copy_state == nullptr)
 			return;
-		}
-		case D3DRTYPE_SURFACE | (D3DRTYPE_TEXTURE << 4):
+
+		// Capture and restore state, render targets, depth-stencil surface and viewport (which all may change next)
+		_backup_state.capture();
+
+		// Perform copy using rasterization pipeline
+		_copy_state->Apply();
+
+		_orig->SetTexture(0, static_cast<IDirect3DBaseTexture9 *>(src_object));
+		_orig->SetSamplerState(0, D3DSAMP_MINFILTER, stretch_filter_type);
+		_orig->SetSamplerState(0, D3DSAMP_MAGFILTER, stretch_filter_type);
+		_orig->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, src_level);
+
+		assert((dst_desc.Usage & D3DUSAGE_RENDERTARGET) != 0);
+
+		_orig->SetRenderTarget(0, target_surface.get());
+		for (DWORD i = 1; i < _caps.NumSimultaneousRTs; ++i)
+			_orig->SetRenderTarget(i, nullptr);
+		_orig->SetDepthStencilSurface(nullptr);
+
+		if (dst_box != nullptr)
 		{
-			dst_is_regular_texture = true;
-			[[fallthrough]];
+			convert_subresource_box_to_rect(dst_box, dst_rect);
+
+			D3DVIEWPORT9 internal_viewport;
+			internal_viewport.X = dst_rect.left;
+			internal_viewport.Y = dst_rect.top;
+			internal_viewport.Width = dst_rect.right - dst_rect.left;
+			internal_viewport.Height = dst_rect.bottom - dst_rect.top;
+			internal_viewport.MinZ = 0.0f;
+			internal_viewport.MaxZ = 1.0f;
+
+			_orig->SetViewport(&internal_viewport);
+
+			dst_desc.Width = internal_viewport.Width;
+			dst_desc.Height = internal_viewport.Height;
 		}
-		case D3DRTYPE_SURFACE | (D3DRTYPE_CUBETEXTURE << 4):
+
+		// Bake half-pixel offset into vertices
+		const float half_pixel_offset[2] = {
+			-1.0f / dst_desc.Width, 1.0f / dst_desc.Height
+		};
+
+		if (src_face == D3DCUBEMAP_FACE_FORCE_DWORD)
 		{
-			assert(src_subresource == 0);
+			_orig->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
 
-			com_ptr<IDirect3DSurface9> src_surface = static_cast<IDirect3DSurface9 *>(src_object);
-
-			D3DSURFACE_DESC src_desc;
-			IDirect3DSurface9_GetDesc(src_surface.get(), &src_desc);
-
-			if ((src_desc.Usage & D3DUSAGE_DEPTHSTENCIL) != 0 && dst_subresource == 0 && check_capability(api::device_caps::resolve_depth_stencil))
-			{
-				// Capture and restore state
-				_backup_state.capture();
-
-				_orig->SetTexture(0, static_cast<IDirect3DBaseTexture9 *>(dst_object));
-				_orig->SetDepthStencilSurface(src_surface.get());
-
-				// Dummy draw call, required to ensure the destination texture is set before the resolve operation is triggered below
-				_orig->SetRenderState(D3DRS_ZENABLE, FALSE);
-				_orig->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-				_orig->SetRenderState(D3DRS_COLORWRITEENABLE, 0);
-				const float dummy_point[3] = { 0.0, 0.0f, 0.0f };
-				_orig->DrawPrimitiveUP(D3DPT_POINTLIST, 1, dummy_point, sizeof(dummy_point));
-
-				// Trigger multisampled depth buffer resolve operation
-				_orig->SetRenderState(D3DRS_POINTSIZE, 0x7FA05000 /* RESZ code */);
-
-				_backup_state.apply_and_release();
-				return;
-			}
-
-			const DWORD dst_level_count = IDirect3DBaseTexture9_GetLevelCount(static_cast<IDirect3DBaseTexture9 *>(dst_object));
-			const DWORD dst_level = dst_subresource % dst_level_count;
-
-			com_ptr<IDirect3DSurface9> dst_surface;
-			if (FAILED(dst_is_regular_texture ?
-					IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(dst_object), dst_level, &dst_surface) :
-					IDirect3DCubeTexture9_GetCubeMapSurface(static_cast<IDirect3DCubeTexture9 *>(dst_object), static_cast<D3DCUBEMAP_FACES>(dst_subresource / dst_level_count), dst_level, &dst_surface)))
-				break;
-
-			D3DSURFACE_DESC dst_desc;
-			IDirect3DSurface9_GetDesc(dst_surface.get(), &dst_desc);
-
-			if (src_desc.Pool == D3DPOOL_DEFAULT && dst_desc.Pool == D3DPOOL_SYSTEMMEM)
-			{
-				assert(src_box == nullptr && dst_box == nullptr);
-				assert((src_desc.Usage & D3DUSAGE_RENDERTARGET) != 0);
-				_orig->GetRenderTargetData(src_surface.get(), dst_surface.get());
-				return;
-			}
-			if (src_desc.Pool == D3DPOOL_SYSTEMMEM && dst_desc.Pool == D3DPOOL_DEFAULT)
-			{
-				_orig->UpdateSurface(
-					src_surface.get(), convert_box_to_rect(src_box, src_rect),
-					dst_surface.get(), reinterpret_cast<const POINT *>(convert_box_to_rect(dst_box, dst_rect)));
-				return;
-			}
-
-			assert(src_desc.Pool == D3DPOOL_DEFAULT && dst_desc.Pool == D3DPOOL_DEFAULT);
-
-			_orig->StretchRect(
-				src_surface.get(), convert_box_to_rect(src_box, src_rect),
-				dst_surface.get(), convert_box_to_rect(dst_box, dst_rect), stretch_filter_type);
-			return;
-		}
-		case D3DRTYPE_TEXTURE | (D3DRTYPE_TEXTURE << 4):
-		{
-			src_is_regular_texture = true;
-			[[fallthrough]];
-		}
-		case D3DRTYPE_CUBETEXTURE | (D3DRTYPE_TEXTURE << 4):
-		{
-			const DWORD src_level_count = IDirect3DBaseTexture9_GetLevelCount(static_cast<IDirect3DBaseTexture9 *>(src_object));
-			const DWORD src_level = src_subresource % src_level_count;
-
-			com_ptr<IDirect3DSurface9> src_surface;
-			if (FAILED(src_is_regular_texture ?
-					IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(src_object), src_level, &src_surface) :
-					IDirect3DCubeTexture9_GetCubeMapSurface(static_cast<IDirect3DCubeTexture9 *>(src_object), static_cast<D3DCUBEMAP_FACES>(src_subresource / src_level_count), src_level, &src_surface)))
-				break;
-
-			com_ptr<IDirect3DSurface9> dst_surface;
-			if (FAILED(IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(dst_object), dst_subresource, &dst_surface)))
-				break;
-
-			D3DSURFACE_DESC src_desc;
-			IDirect3DSurface9_GetDesc(src_surface.get(), &src_desc);
-			D3DSURFACE_DESC dst_desc;
-			IDirect3DSurface9_GetDesc(dst_surface.get(), &dst_desc);
-
-			com_ptr<IDirect3DSurface9> target_surface = dst_surface;
-
-			if (dst_desc.Pool == D3DPOOL_SYSTEMMEM)
-			{
-				if (src_box == nullptr && dst_box == nullptr && src_desc.Pool == D3DPOOL_DEFAULT && (src_desc.Usage & D3DUSAGE_RENDERTARGET) != 0)
-				{
-					_orig->GetRenderTargetData(src_surface.get(), dst_surface.get());
-					return;
-				}
-				else
-				{
-					dst_desc.Pool = D3DPOOL_DEFAULT;
-					dst_desc.Usage = D3DUSAGE_RENDERTARGET;
-					target_surface.reset();
-
-					if (FAILED(create_surface_replacement(dst_desc, &target_surface)))
-						break;
-				}
-			}
-			else if (src_desc.Pool == D3DPOOL_SYSTEMMEM && dst_desc.Pool == D3DPOOL_DEFAULT)
-			{
-				_orig->UpdateSurface(
-					src_surface.get(), convert_box_to_rect(src_box, src_rect),
-					dst_surface.get(), reinterpret_cast<const POINT *>(convert_box_to_rect(dst_box, dst_rect)));
-				return;
-			}
-
-			assert((src_desc.Pool == D3DPOOL_DEFAULT || src_desc.Pool == D3DPOOL_MANAGED) && dst_desc.Pool == D3DPOOL_DEFAULT);
-
-			if (_copy_state == nullptr)
-				return;
-
-			// Capture and restore state, render targets, depth-stencil surface and viewport (which all may change next)
-			_backup_state.capture();
-
-			// Perform copy using rasterization pipeline
-			_copy_state->Apply();
-
-			_orig->SetTexture(0, static_cast<IDirect3DBaseTexture9 *>(src_object));
-			_orig->SetSamplerState(0, D3DSAMP_MINFILTER, stretch_filter_type);
-			_orig->SetSamplerState(0, D3DSAMP_MAGFILTER, stretch_filter_type);
-			_orig->SetSamplerState(0, D3DSAMP_MAXMIPLEVEL, src_level);
-
-			assert((dst_desc.Usage & D3DUSAGE_RENDERTARGET) != 0);
-
-			_orig->SetRenderTarget(0, target_surface.get());
-			for (DWORD i = 1; i < _caps.NumSimultaneousRTs; ++i)
-				_orig->SetRenderTarget(i, nullptr);
-			_orig->SetDepthStencilSurface(nullptr);
-
-			if (dst_box != nullptr)
-			{
-				convert_box_to_rect(dst_box, dst_rect);
-
-				D3DVIEWPORT9 viewport;
-				viewport.X = dst_rect.left;
-				viewport.Y = dst_rect.top;
-				viewport.Width = dst_rect.right - dst_rect.left;
-				viewport.Height = dst_rect.bottom - dst_rect.top;
-				viewport.MinZ = 0.0f;
-				viewport.MaxZ = 1.0f;
-
-				_orig->SetViewport(&viewport);
-
-				dst_desc.Width = viewport.Width;
-				dst_desc.Height = viewport.Height;
-			}
-
-			// Bake half-pixel offset into vertices
-			const float half_pixel_offset[2] = {
-				-1.0f / dst_desc.Width, 1.0f / dst_desc.Height
+			float vertices[3][5] = {
+				// x      y      z      tu     tv
+				{ -1.0f,  1.0f,  0.0f,  0.0f,  0.0f },
+				{  3.0f,  1.0f,  0.0f,  2.0f,  0.0f },
+				{ -1.0f, -3.0f,  0.0f,  0.0f,  2.0f },
 			};
 
-			if (src_is_regular_texture)
+			for (int v = 0; v < 3; ++v)
 			{
-				_orig->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
-
-				float vertices[3][5] = {
-					// x      y      z      tu     tv
-					{ -1.0f,  1.0f,  0.0f,  0.0f,  0.0f },
-					{  3.0f,  1.0f,  0.0f,  2.0f,  0.0f },
-					{ -1.0f, -3.0f,  0.0f,  0.0f,  2.0f },
-				};
-
-				for (int v = 0; v < 3; ++v)
-				{
-					vertices[v][0] += half_pixel_offset[0];
-					vertices[v][1] += half_pixel_offset[1];
-				}
-
-				if (src_box != nullptr)
-				{
-					vertices[0][3] = static_cast<float>(src_box->left  ) * 2.0f / dst_desc.Width;
-					vertices[0][4] = static_cast<float>(src_box->top   ) * 2.0f / dst_desc.Height;
-					vertices[1][3] = static_cast<float>(src_box->right ) * 2.0f / dst_desc.Width;
-					vertices[1][4] = static_cast<float>(src_box->top   ) * 2.0f / dst_desc.Height;
-					vertices[2][3] = static_cast<float>(src_box->left  ) * 2.0f / dst_desc.Width;
-					vertices[2][4] = static_cast<float>(src_box->bottom) * 2.0f / dst_desc.Height;
-				}
-
-				_orig->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, vertices, sizeof(vertices[0]));
-			}
-			else
-			{
-				// See also https://docs.microsoft.com/windows/win32/direct3d9/cubic-environment-mapping
-				_orig->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE3(0));
-
-				float vertices[4][6] = {
-					// x      y      z      tx     ty     tz
-					{ -1.0f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f },
-					{  1.0f,  1.0f,  0.0f,  1.0f,  1.0f,  0.0f },
-					{ -1.0f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f },
-					{  1.0f, -1.0f,  0.0f,  1.0f,  0.0f,  0.0f },
-				};
-
-				for (int v = 0; v < 4; ++v)
-				{
-					vertices[v][0] += half_pixel_offset[0];
-					vertices[v][1] += half_pixel_offset[1];
-				}
-
-				if (src_box != nullptr)
-				{
-					vertices[0][3] = static_cast<float>(src_box->left  ) / dst_desc.Width;
-					vertices[0][4] = static_cast<float>(src_box->bottom) / dst_desc.Height;
-					vertices[1][3] = static_cast<float>(src_box->right ) / dst_desc.Width;
-					vertices[1][4] = static_cast<float>(src_box->bottom) / dst_desc.Height;
-					vertices[2][3] = static_cast<float>(src_box->left  ) / dst_desc.Width;
-					vertices[2][4] = static_cast<float>(src_box->top   ) / dst_desc.Height;
-					vertices[3][3] = static_cast<float>(src_box->right ) / dst_desc.Width;
-					vertices[3][4] = static_cast<float>(src_box->top   ) / dst_desc.Height;
-				}
-
-				const auto face = static_cast<D3DCUBEMAP_FACES>(src_subresource / src_level_count);
-				for (int i = 0; i < 4; ++i)
-					convert_cube_uv_to_vec(face, vertices[i][3], vertices[i][4], vertices[i][3], vertices[i][4], vertices[i][5]);
-
-				_orig->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(vertices[0]));
+				vertices[v][0] += half_pixel_offset[0];
+				vertices[v][1] += half_pixel_offset[1];
 			}
 
-			_backup_state.apply_and_release();
-
-			if (target_surface != dst_surface)
+			if (src_box != nullptr)
 			{
-				assert(dst_box == nullptr);
-				_orig->GetRenderTargetData(target_surface.get(), dst_surface.get());
+				vertices[0][3] = static_cast<float>(src_box->left) * 2.0f / dst_desc.Width;
+				vertices[0][4] = static_cast<float>(src_box->top) * 2.0f / dst_desc.Height;
+				vertices[1][3] = static_cast<float>(src_box->right) * 2.0f / dst_desc.Width;
+				vertices[1][4] = static_cast<float>(src_box->top) * 2.0f / dst_desc.Height;
+				vertices[2][3] = static_cast<float>(src_box->left) * 2.0f / dst_desc.Width;
+				vertices[2][4] = static_cast<float>(src_box->bottom) * 2.0f / dst_desc.Height;
 			}
-			return;
+
+			_orig->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 1, vertices, sizeof(vertices[0]));
 		}
-		case D3DRTYPE_TEXTURE | (D3DRTYPE_SURFACE << 4):
+		else
 		{
-			src_is_regular_texture = true;
-			[[fallthrough]];
+			// See also https://docs.microsoft.com/windows/win32/direct3d9/cubic-environment-mapping
+			_orig->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1 | D3DFVF_TEXCOORDSIZE3(0));
+
+			float vertices[4][6] = {
+				// x      y      z      tx     ty     tz
+				{ -1.0f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f },
+				{  1.0f,  1.0f,  0.0f,  1.0f,  0.0f,  0.0f },
+				{ -1.0f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f },
+				{  1.0f, -1.0f,  0.0f,  1.0f,  1.0f,  0.0f },
+			};
+
+			for (int v = 0; v < 4; ++v)
+			{
+				vertices[v][0] += half_pixel_offset[0];
+				vertices[v][1] += half_pixel_offset[1];
+			}
+
+			if (src_box != nullptr)
+			{
+				vertices[0][3] = static_cast<float>(src_box->left) / dst_desc.Width;
+				vertices[0][4] = static_cast<float>(src_box->top) / dst_desc.Height;
+				vertices[1][3] = static_cast<float>(src_box->right) / dst_desc.Width;
+				vertices[1][4] = static_cast<float>(src_box->top) / dst_desc.Height;
+				vertices[2][3] = static_cast<float>(src_box->left) / dst_desc.Width;
+				vertices[2][4] = static_cast<float>(src_box->bottom) / dst_desc.Height;
+				vertices[3][3] = static_cast<float>(src_box->right) / dst_desc.Width;
+				vertices[3][4] = static_cast<float>(src_box->bottom) / dst_desc.Height;
+			}
+
+			for (int i = 0; i < 4; ++i)
+				convert_cube_uv_to_vec(src_face, vertices[i][3], vertices[i][4], vertices[i][3], vertices[i][4], vertices[i][5]);
+
+			_orig->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(vertices[0]));
 		}
-		case D3DRTYPE_CUBETEXTURE | (D3DRTYPE_SURFACE << 4) :
-		{
-			assert(dst_subresource == 0);
 
-			const DWORD src_level_count = IDirect3DBaseTexture9_GetLevelCount(static_cast<IDirect3DBaseTexture9 *>(src_object));
-			const DWORD src_level = src_subresource % src_level_count;
-
-			com_ptr<IDirect3DSurface9> src_surface;
-			if (FAILED(src_is_regular_texture ?
-					IDirect3DTexture9_GetSurfaceLevel(static_cast<IDirect3DTexture9 *>(src_object), src_level, &src_surface) :
-					IDirect3DCubeTexture9_GetCubeMapSurface(static_cast<IDirect3DCubeTexture9 *>(src_object), static_cast<D3DCUBEMAP_FACES>(src_subresource / src_level_count), src_level, &src_surface)))
-				break;
-
-			com_ptr<IDirect3DSurface9> dst_surface = static_cast<IDirect3DSurface9 *>(dst_object);
-
-			D3DSURFACE_DESC src_desc;
-			IDirect3DSurface9_GetDesc(src_surface.get(), &src_desc);
-			D3DSURFACE_DESC dst_desc;
-			IDirect3DSurface9_GetDesc(dst_surface.get(), &dst_desc);
-
-			com_ptr<IDirect3DSurface9> target_surface = dst_surface;
-
-			if (dst_desc.Pool == D3DPOOL_SYSTEMMEM)
-			{
-				if (src_box == nullptr && dst_box == nullptr && src_desc.Pool == D3DPOOL_DEFAULT && (src_desc.Usage & D3DUSAGE_RENDERTARGET) != 0)
-				{
-					_orig->GetRenderTargetData(src_surface.get(), dst_surface.get());
-					return;
-				}
-				else
-				{
-					dst_desc.Pool = D3DPOOL_DEFAULT;
-					dst_desc.Usage = D3DUSAGE_RENDERTARGET;
-					target_surface.reset();
-
-					if (FAILED(create_surface_replacement(dst_desc, &target_surface)))
-						break;
-				}
-			}
-			else if (src_desc.Pool == D3DPOOL_SYSTEMMEM && dst_desc.Pool == D3DPOOL_DEFAULT)
-			{
-				_orig->UpdateSurface(
-					src_surface.get(), convert_box_to_rect(src_box, src_rect),
-					dst_surface.get(), reinterpret_cast<const POINT *>(convert_box_to_rect(dst_box, dst_rect)));
-				return;
-			}
-
-			assert(src_desc.Pool == D3DPOOL_DEFAULT && dst_desc.Pool == D3DPOOL_DEFAULT);
-
-			_orig->StretchRect(
-				src_surface.get(), convert_box_to_rect(src_box, src_rect),
-				target_surface.get(), convert_box_to_rect(dst_box, dst_rect), stretch_filter_type);
-
-			if (target_surface != dst_surface)
-			{
-				assert(dst_box == nullptr);
-				_orig->GetRenderTargetData(target_surface.get(), dst_surface.get());
-			}
-			return;
-		}
+		_backup_state.apply_and_release();
+	}
+	else
+	{
+		_orig->StretchRect(
+			src_surface.get(), convert_subresource_box_to_rect(src_box, src_rect),
+			target_surface.get(), convert_subresource_box_to_rect(dst_box, dst_rect), stretch_filter_type);
 	}
 
-	assert(false); // Not implemented
+	if (target_surface != dst_surface)
+	{
+		assert(dst_box == nullptr);
+		_orig->GetRenderTargetData(target_surface.get(), dst_surface.get());
+	}
 }
 void reshade::d3d9::device_impl::copy_texture_to_buffer(api::resource, uint32_t, const api::subresource_box *, api::resource, uint64_t, uint32_t, uint32_t)
 {
 	assert(false);
 }
-void reshade::d3d9::device_impl::resolve_texture_region(api::resource src, uint32_t src_subresource, const api::subresource_box *src_box, api::resource dst, uint32_t dst_subresource, int32_t dst_x, int32_t dst_y, int32_t dst_z, api::format)
+void reshade::d3d9::device_impl::resolve_texture_region(api::resource src, uint32_t src_subresource, const api::subresource_box *src_box, api::resource dst, uint32_t dst_subresource, uint32_t dst_x, uint32_t dst_y, uint32_t dst_z, api::format)
 {
 	api::subresource_box dst_box;
 	dst_box.left  = dst_x;
@@ -865,7 +814,7 @@ void reshade::d3d9::device_impl::resolve_texture_region(api::resource src, uint3
 
 void reshade::d3d9::device_impl::clear_depth_stencil_view(api::resource_view dsv, const float *depth, const uint8_t *stencil, uint32_t rect_count, const api::rect *)
 {
-	assert(dsv.handle != 0 && rect_count == 0); // Clearing rectangles is not supported
+	assert(dsv != 0 && rect_count == 0); // Clearing rectangles is not supported
 
 	com_ptr<IDirect3DSurface9> prev_surface;
 	_orig->GetDepthStencilSurface(&prev_surface);
@@ -874,7 +823,7 @@ void reshade::d3d9::device_impl::clear_depth_stencil_view(api::resource_view dsv
 
 	_orig->Clear(
 		0, nullptr,
-		(depth != nullptr ? D3DCLEAR_ZBUFFER : 0) | (stencil != nullptr ? D3DCLEAR_STENCIL : 0),
+		(depth != nullptr ? D3DCLEAR_ZBUFFER : 0u) | (stencil != nullptr ? D3DCLEAR_STENCIL : 0u),
 		0, depth != nullptr ? *depth : 0.0f, stencil != nullptr ? *stencil : 0);
 
 	if (prev_surface != reinterpret_cast<IDirect3DSurface9 *>(dsv.handle))
@@ -882,7 +831,7 @@ void reshade::d3d9::device_impl::clear_depth_stencil_view(api::resource_view dsv
 }
 void reshade::d3d9::device_impl::clear_render_target_view(api::resource_view rtv, const float color[4], uint32_t rect_count, const api::rect *rects)
 {
-	assert(rtv.handle != 0 && color != nullptr);
+	assert(rtv != 0 && color != nullptr);
 
 #if 1
 	for (size_t i = 0; i < std::max(rect_count, 1u); ++i)
@@ -912,7 +861,7 @@ void reshade::d3d9::device_impl::clear_unordered_access_view_float(api::resource
 
 void reshade::d3d9::device_impl::generate_mipmaps(api::resource_view srv)
 {
-	assert(srv.handle != 0);
+	assert(srv != 0);
 
 	const auto texture = reinterpret_cast<IDirect3DBaseTexture9 *>(srv.handle & ~1ull);
 
@@ -922,13 +871,13 @@ void reshade::d3d9::device_impl::generate_mipmaps(api::resource_view srv)
 
 void reshade::d3d9::device_impl::begin_query(api::query_heap heap, api::query_type, uint32_t index)
 {
-	assert(heap.handle != 0);
+	assert(heap != 0);
 
 	reinterpret_cast<query_heap_impl *>(heap.handle)->queries[index]->Issue(D3DISSUE_BEGIN);
 }
 void reshade::d3d9::device_impl::end_query(api::query_heap heap, api::query_type, uint32_t index)
 {
-	assert(heap.handle != 0);
+	assert(heap != 0);
 
 	reinterpret_cast<query_heap_impl *>(heap.handle)->queries[index]->Issue(D3DISSUE_END);
 }
@@ -942,6 +891,10 @@ void reshade::d3d9::device_impl::copy_acceleration_structure(api::resource_view,
 	assert(false);
 }
 void reshade::d3d9::device_impl::build_acceleration_structure(api::acceleration_structure_type, api::acceleration_structure_build_flags, uint32_t, const api::acceleration_structure_build_input *, api::resource, uint64_t, api::resource_view, api::resource_view, api::acceleration_structure_build_mode)
+{
+	assert(false);
+}
+void reshade::d3d9::device_impl::query_acceleration_structures(uint32_t, const api::resource_view *, api::query_heap, api::query_type, uint32_t)
 {
 	assert(false);
 }

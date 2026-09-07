@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <GL/gl3w.h>
+#include <glad/wgl.h>
 #include "reshade_api_object_impl.hpp"
 #include <unordered_map>
 
@@ -31,7 +31,7 @@ namespace reshade::opengl
 
 		void barrier(uint32_t count, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states) final;
 
-		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds) final;
+		void begin_render_pass2(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags flags) final;
 		void end_render_pass() final;
 		void bind_render_targets_and_depth_stencil(uint32_t count, const api::resource_view *rtvs, api::resource_view dsv) final;
 
@@ -40,7 +40,6 @@ namespace reshade::opengl
 
 		void update_default_framebuffer(unsigned int width, unsigned int height);
 		void update_current_window_height(api::resource_view default_attachment);
-		void invalidate_framebuffer_cache();
 
 		void bind_pipeline(api::pipeline_stage stages, api::pipeline pipeline) final;
 		void bind_pipeline_states(uint32_t count, const api::dynamic_state *states, const uint32_t *values) final;
@@ -49,7 +48,7 @@ namespace reshade::opengl
 
 		void push_constants(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, uint32_t first, uint32_t count, const void *values) final;
 		void push_descriptors(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, const api::descriptor_table_update &update) final;
-		void bind_descriptor_tables(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables) final;
+		void bind_descriptor_tables2(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables, uint32_t dynamic_offset_count, const uint32_t *dynamic_offsets) final;
 
 		void bind_index_buffer(api::resource buffer, uint64_t offset, uint32_t index_size) final;
 		void bind_vertex_buffers(uint32_t first, uint32_t count, const api::resource *buffers, const uint64_t *offsets, const uint32_t *strides) final;
@@ -67,7 +66,7 @@ namespace reshade::opengl
 		void copy_buffer_to_texture(api::resource source, uint64_t source_offset, uint32_t row_length, uint32_t slice_height, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
 		void copy_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box, api::filter_mode filter) final;
 		void copy_texture_to_buffer(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint64_t dest_offset, uint32_t row_length, uint32_t slice_height) final;
-		void resolve_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, int32_t dest_x, int32_t dest_y, int32_t dest_z, api::format format) final;
+		void resolve_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, uint32_t dest_x, uint32_t dest_y, uint32_t dest_z, api::format format) final;
 
 		void clear_depth_stencil_view(api::resource_view dsv, const float *depth, const uint8_t *stencil, uint32_t rect_count, const api::rect *rects) final;
 		void clear_render_target_view(api::resource_view rtv, const float color[4], uint32_t rect_count, const api::rect *rects) final;
@@ -82,6 +81,10 @@ namespace reshade::opengl
 
 		void copy_acceleration_structure(api::resource_view source, api::resource_view dest, api::acceleration_structure_copy_mode mode) final;
 		void build_acceleration_structure(api::acceleration_structure_type type, api::acceleration_structure_build_flags flags, uint32_t input_count, const api::acceleration_structure_build_input *inputs, api::resource scratch, uint64_t scratch_offset, api::resource_view source, api::resource_view dest, api::acceleration_structure_build_mode mode) final;
+		void query_acceleration_structures(uint32_t count, const api::resource_view *acceleration_structures, api::query_heap heap, api::query_type type, uint32_t first) final;
+
+		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) final;
+		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
 
 		void begin_debug_event(const char *label, const float color[4]) final;
 		void end_debug_event() final;
@@ -92,7 +95,10 @@ namespace reshade::opengl
 
 		uint64_t get_timestamp_frequency() const final { return 1000000000; /* Assume nanoseconds */ }
 
-		GLuint _current_ibo = 0;
+		bool _current_vao_dirty = true;
+		bool _current_ibo_dirty = true;
+		bool _current_vbo_dirty = true;
+
 		GLenum _current_prim_mode = GL_NONE;
 		GLenum _current_index_type = GL_UNSIGNED_INT;
 		GLuint _current_vertex_count = 0; // Used to calculate vertex count inside 'glBegin'/'glEnd' pairs
@@ -103,16 +109,15 @@ namespace reshade::opengl
 		unsigned int _default_fbo_height = 0;
 
 	private:
-		device_impl *const _device_impl;
+		device_impl *const _device;
 
-		// Programs and framebuffer objects cannot be shared between render contexts, so have to create them for each one
-		GLuint _mipmap_program = 0;
-		GLuint _mipmap_sampler = 0;
+		std::vector<GLuint> _push_constants;
+		std::vector<GLuint> _push_constants_size;
 
-		GLuint _push_constants = 0;
-		GLuint _push_constants_size = 0;
-
-		bool _fbo_lookup_valid = true;
+		// Framebuffer and vertex array objects cannot be shared between render contexts, so have to create them for each one
+		uint64_t _last_fbo_lookup_version = 0;
 		std::unordered_map<size_t, GLuint> _fbo_lookup;
+		uint64_t _last_vao_lookup_version = 0;
+		std::unordered_map<size_t, GLuint> _vao_lookup;
 	};
 }

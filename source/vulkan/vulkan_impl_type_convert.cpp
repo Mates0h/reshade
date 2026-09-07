@@ -3,10 +3,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "vulkan_hooks.hpp"
-#include "vulkan_impl_device.hpp"
 #include "vulkan_impl_type_convert.hpp"
-#include <algorithm>
+#include <cassert>
+#include <algorithm> // std::copy_n, std::fill_n, std::find_if, std::max
 
 auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *components) -> VkFormat
 {
@@ -17,8 +16,10 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		[[fallthrough]];
 	case api::format::unknown:
 		break;
+
 	case api::format::r1_unorm:
 		break; // Unsupported
+
 	case api::format::l8_unorm:
 		if (components != nullptr)
 			*components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
@@ -36,6 +37,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_R8_UNORM;
 	case api::format::r8_snorm:
 		return VK_FORMAT_R8_SNORM;
+
 	case api::format::l8a8_unorm:
 		if (components != nullptr)
 			*components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G };
@@ -49,6 +51,25 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_R8G8_UNORM;
 	case api::format::r8g8_snorm:
 		return VK_FORMAT_R8G8_SNORM;
+
+	case api::format::r8g8b8_uint:
+		return VK_FORMAT_R8G8B8_UINT;
+	case api::format::r8g8b8_sint:
+		return VK_FORMAT_R8G8B8_SINT;
+	case api::format::r8g8b8_typeless:
+	case api::format::r8g8b8_unorm:
+		return VK_FORMAT_R8G8B8_UNORM;
+	case api::format::r8g8b8_unorm_srgb:
+		return VK_FORMAT_R8G8B8_SRGB;
+	case api::format::r8g8b8_snorm:
+		return VK_FORMAT_R8G8B8_SNORM;
+
+	case api::format::b8g8r8_typeless:
+	case api::format::b8g8r8_unorm:
+		return VK_FORMAT_B8G8R8_UNORM;
+	case api::format::b8g8r8_unorm_srgb:
+		return VK_FORMAT_B8G8R8_SRGB;
+
 	case api::format::r8g8b8a8_uint:
 		return VK_FORMAT_R8G8B8A8_UINT;
 	case api::format::r8g8b8a8_sint:
@@ -68,6 +89,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_R8G8B8A8_SRGB;
 	case api::format::r8g8b8a8_snorm:
 		return VK_FORMAT_R8G8B8A8_SNORM;
+
 	case api::format::b8g8r8x8_typeless:
 	case api::format::b8g8r8x8_unorm:
 		if (components != nullptr)
@@ -82,6 +104,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		[[fallthrough]];
 	case api::format::b8g8r8a8_unorm_srgb:
 		return VK_FORMAT_B8G8R8A8_SRGB;
+
 	case api::format::r10g10b10a2_uint:
 		return VK_FORMAT_A2B10G10R10_UINT_PACK32;
 	case api::format::r10g10b10a2_typeless:
@@ -89,11 +112,13 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
 	case api::format::r10g10b10a2_xr_bias:
 		break; // Unsupported
+
 	case api::format::b10g10r10a2_uint:
 		return VK_FORMAT_A2R10G10B10_UINT_PACK32;
 	case api::format::b10g10r10a2_typeless:
 	case api::format::b10g10r10a2_unorm:
 		return VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+
 	case api::format::l16_unorm:
 		if (components != nullptr)
 			*components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_ONE };
@@ -109,6 +134,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r16_typeless:
 	case api::format::r16_float:
 		return VK_FORMAT_R16_SFLOAT;
+
 	case api::format::l16a16_unorm:
 		if (components != nullptr)
 			*components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G };
@@ -124,6 +150,19 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r16g16_typeless:
 	case api::format::r16g16_float:
 		return VK_FORMAT_R16G16_SFLOAT;
+
+	case api::format::r16g16b16_uint:
+		return VK_FORMAT_R16G16B16_UINT;
+	case api::format::r16g16b16_sint:
+		return VK_FORMAT_R16G16B16_SINT;
+	case api::format::r16g16b16_unorm:
+		return VK_FORMAT_R16G16B16_UNORM;
+	case api::format::r16g16b16_snorm:
+		return VK_FORMAT_R16G16B16_SNORM;
+	case api::format::r16g16b16_typeless:
+	case api::format::r16g16b16_float:
+		return VK_FORMAT_R16G16B16_SFLOAT;
+
 	case api::format::r16g16b16a16_uint:
 		return VK_FORMAT_R16G16B16A16_UINT;
 	case api::format::r16g16b16a16_sint:
@@ -135,6 +174,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r16g16b16a16_typeless:
 	case api::format::r16g16b16a16_float:
 		return VK_FORMAT_R16G16B16A16_SFLOAT;
+
 	case api::format::r32_uint:
 		return VK_FORMAT_R32_UINT;
 	case api::format::r32_sint:
@@ -142,6 +182,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r32_typeless:
 	case api::format::r32_float:
 		return VK_FORMAT_R32_SFLOAT;
+
 	case api::format::r32g32_uint:
 		return VK_FORMAT_R32G32_UINT;
 	case api::format::r32g32_sint:
@@ -149,6 +190,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r32g32_typeless:
 	case api::format::r32g32_float:
 		return VK_FORMAT_R32G32_SFLOAT;
+
 	case api::format::r32g32b32_uint:
 		return VK_FORMAT_R32G32B32_UINT;
 	case api::format::r32g32b32_sint:
@@ -156,6 +198,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r32g32b32_typeless:
 	case api::format::r32g32b32_float:
 		return VK_FORMAT_R32G32B32_SFLOAT;
+
 	case api::format::r32g32b32a32_uint:
 		return VK_FORMAT_R32G32B32A32_UINT;
 	case api::format::r32g32b32a32_sint:
@@ -163,6 +206,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::r32g32b32a32_typeless:
 	case api::format::r32g32b32a32_float:
 		return VK_FORMAT_R32G32B32A32_SFLOAT;
+
 	case api::format::r9g9b9e5:
 		return VK_FORMAT_E5B9G9R9_UFLOAT_PACK32;
 	case api::format::r11g11b10_float:
@@ -179,6 +223,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_A4R4G4B4_UNORM_PACK16;
 	case api::format::a4b4g4r4_unorm:
 		return VK_FORMAT_A4B4G4R4_UNORM_PACK16;
+
 	case api::format::s8_uint:
 		return VK_FORMAT_S8_UINT;
 	case api::format::d16_unorm:
@@ -199,6 +244,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 	case api::format::x32_float_g8_uint:
 	case api::format::d32_float_s8_uint:
 		return VK_FORMAT_D32_SFLOAT_S8_UINT;
+
 	case api::format::bc1_typeless:
 	case api::format::bc1_unorm:
 		return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
@@ -234,6 +280,7 @@ auto reshade::vulkan::convert_format(api::format format, VkComponentMapping *com
 		return VK_FORMAT_BC7_UNORM_BLOCK;
 	case api::format::bc7_unorm_srgb:
 		return VK_FORMAT_BC7_SRGB_BLOCK;
+
 	case api::format::r8g8_b8g8_unorm:
 		return VK_FORMAT_B8G8R8G8_422_UNORM;
 	case api::format::g8r8_g8b8_unorm:
@@ -249,6 +296,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 	default:
 	case VK_FORMAT_UNDEFINED:
 		return api::format::unknown;
+
 	case VK_FORMAT_R8_UINT:
 		return api::format::r8_uint;
 	case VK_FORMAT_R8_SINT:
@@ -269,6 +317,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::r8_unorm;
 	case VK_FORMAT_R8_SNORM:
 		return api::format::r8_snorm;
+
 	case VK_FORMAT_R8G8_UINT:
 		return api::format::r8g8_uint;
 	case VK_FORMAT_R8G8_SINT:
@@ -283,6 +332,23 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::r8g8_unorm;
 	case VK_FORMAT_R8G8_SNORM:
 		return api::format::r8g8_snorm;
+
+	case VK_FORMAT_R8G8B8_UINT:
+		return api::format::r8g8b8_uint;
+	case VK_FORMAT_R8G8B8_SINT:
+		return api::format::r8g8b8_sint;
+	case VK_FORMAT_R8G8B8_UNORM:
+		return api::format::r8g8b8_unorm;
+	case VK_FORMAT_R8G8B8_SRGB:
+		return api::format::r8g8b8_unorm_srgb;
+	case VK_FORMAT_R8G8B8_SNORM:
+		return api::format::r8g8b8_snorm;
+
+	case VK_FORMAT_B8G8R8_UNORM:
+		return api::format::b8g8r8_unorm;
+	case VK_FORMAT_B8G8R8_SRGB:
+		return api::format::b8g8r8_unorm_srgb;
+
 	case VK_FORMAT_R8G8B8A8_UINT:
 	case VK_FORMAT_A8B8G8R8_UINT_PACK32:
 		return api::format::r8g8b8a8_uint;
@@ -310,6 +376,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 	case VK_FORMAT_R8G8B8A8_SNORM:
 	case VK_FORMAT_A8B8G8R8_SNORM_PACK32:
 		return api::format::r8g8b8a8_snorm;
+
 	case VK_FORMAT_B8G8R8A8_UNORM:
 		if (components != nullptr &&
 			components->r == VK_COMPONENT_SWIZZLE_R &&
@@ -326,14 +393,17 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 			components->a == VK_COMPONENT_SWIZZLE_ONE)
 			return api::format::b8g8r8x8_unorm_srgb;
 		return api::format::b8g8r8a8_unorm_srgb;
+
 	case VK_FORMAT_A2B10G10R10_UINT_PACK32:
 		return api::format::r10g10b10a2_uint;
 	case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
 		return api::format::r10g10b10a2_unorm;
+
 	case VK_FORMAT_A2R10G10B10_UINT_PACK32:
 		return api::format::b10g10r10a2_uint;
 	case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
 		return api::format::b10g10r10a2_unorm;
+
 	case VK_FORMAT_R16_UINT:
 		return api::format::r16_uint;
 	case VK_FORMAT_R16_SINT:
@@ -350,6 +420,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::r16_snorm;
 	case VK_FORMAT_R16_SFLOAT:
 		return api::format::r16_float;
+
 	case VK_FORMAT_R16G16_UINT:
 		return api::format::r16g16_uint;
 	case VK_FORMAT_R16G16_SINT:
@@ -366,6 +437,18 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::r16g16_snorm;
 	case VK_FORMAT_R16G16_SFLOAT:
 		return api::format::r16g16_float;
+
+	case VK_FORMAT_R16G16B16_UINT:
+		return api::format::r16g16b16_uint;
+	case VK_FORMAT_R16G16B16_SINT:
+		return api::format::r16g16b16_sint;
+	case VK_FORMAT_R16G16B16_UNORM:
+		return api::format::r16g16b16_unorm;
+	case VK_FORMAT_R16G16B16_SNORM:
+		return api::format::r16g16b16_snorm;
+	case VK_FORMAT_R16G16B16_SFLOAT:
+		return api::format::r16g16b16_float;
+
 	case VK_FORMAT_R16G16B16A16_UINT:
 		return api::format::r16g16b16a16_uint;
 	case VK_FORMAT_R16G16B16A16_SINT:
@@ -376,30 +459,35 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::r16g16b16a16_snorm;
 	case VK_FORMAT_R16G16B16A16_SFLOAT:
 		return api::format::r16g16b16a16_float;
+
 	case VK_FORMAT_R32_UINT:
 		return api::format::r32_uint;
 	case VK_FORMAT_R32_SINT:
 		return api::format::r32_sint;
 	case VK_FORMAT_R32_SFLOAT:
 		return api::format::r32_float;
+
 	case VK_FORMAT_R32G32_UINT:
 		return api::format::r32g32_uint;
 	case VK_FORMAT_R32G32_SINT:
 		return api::format::r32g32_sint;
 	case VK_FORMAT_R32G32_SFLOAT:
 		return api::format::r32g32_float;
+
 	case VK_FORMAT_R32G32B32_UINT:
 		return api::format::r32g32b32_uint;
 	case VK_FORMAT_R32G32B32_SINT:
 		return api::format::r32g32b32_sint;
 	case VK_FORMAT_R32G32B32_SFLOAT:
 		return api::format::r32g32b32_float;
+
 	case VK_FORMAT_R32G32B32A32_UINT:
 		return api::format::r32g32b32a32_uint;
 	case VK_FORMAT_R32G32B32A32_SINT:
 		return api::format::r32g32b32a32_sint;
 	case VK_FORMAT_R32G32B32A32_SFLOAT:
 		return api::format::r32g32b32a32_float;
+
 	case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32:
 		return api::format::r9g9b9e5;
 	case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
@@ -418,6 +506,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::b4g4r4a4_unorm;
 	case VK_FORMAT_A4B4G4R4_UNORM_PACK16:
 		return api::format::a4b4g4r4_unorm;
+
 	case VK_FORMAT_D16_UNORM:
 		return api::format::d16_unorm;
 	case VK_FORMAT_X8_D24_UNORM_PACK32:
@@ -432,6 +521,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::d32_float;
 	case VK_FORMAT_D32_SFLOAT_S8_UINT:
 		return api::format::d32_float_s8_uint;
+
 	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
 		return api::format::bc1_unorm;
 	case VK_FORMAT_BC1_RGBA_SRGB_BLOCK:
@@ -460,6 +550,7 @@ auto reshade::vulkan::convert_format(VkFormat vk_format, const VkComponentMappin
 		return api::format::bc7_unorm;
 	case VK_FORMAT_BC7_SRGB_BLOCK:
 		return api::format::bc7_unorm_srgb;
+
 	case VK_FORMAT_G8B8G8R8_422_UNORM:
 		return api::format::g8r8_g8b8_unorm;
 	case VK_FORMAT_B8G8R8G8_422_UNORM:
@@ -474,35 +565,90 @@ auto reshade::vulkan::convert_color_space(api::color_space color_space) -> VkCol
 	default:
 		assert(false);
 		[[fallthrough]];
-	case api::color_space::srgb_nonlinear:
+	case api::color_space::srgb:
 		return VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	case api::color_space::extended_srgb_linear:
+#if VK_EXT_swapchain_colorspace
+	case api::color_space::scrgb:
 		return VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
-	case api::color_space::hdr10_st2084:
+	case api::color_space::hdr10_pq:
 		return VK_COLOR_SPACE_HDR10_ST2084_EXT;
 	case api::color_space::hdr10_hlg:
 		return VK_COLOR_SPACE_HDR10_HLG_EXT;
+#endif
 	}
 }
 auto reshade::vulkan::convert_color_space(VkColorSpaceKHR color_space) -> api::color_space
 {
 	switch (color_space)
 	{
+	case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
+		return api::color_space::srgb;
+#if VK_EXT_swapchain_colorspace
+	case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT:
+		return api::color_space::scrgb;
+	case VK_COLOR_SPACE_HDR10_ST2084_EXT:
+		return api::color_space::hdr10_pq;
+	case VK_COLOR_SPACE_HDR10_HLG_EXT:
+		return api::color_space::hdr10_hlg;
+#endif
 	default:
 		assert(false);
 		return api::color_space::unknown;
-	case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
-		return api::color_space::srgb_nonlinear;
-	case VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT:
-		return api::color_space::extended_srgb_linear;
-	case VK_COLOR_SPACE_HDR10_ST2084_EXT:
-		return api::color_space::hdr10_st2084;
-	case VK_COLOR_SPACE_HDR10_HLG_EXT:
-		return api::color_space::hdr10_hlg;
 	}
 }
 
-auto reshade::vulkan::convert_access_to_usage(VkAccessFlags flags) -> api::resource_usage
+void reshade::vulkan::convert_subresource_box(uint32_t subresource, const reshade::api::subresource_box *box, const VkImageCreateInfo &create_info, VkImageSubresourceLayers &subresource_info, VkOffset3D &offset, VkExtent3D &extent)
+{
+	convert_subresource(subresource, create_info, subresource_info);
+
+	if (box != nullptr)
+	{
+		std::copy_n(&box->left, 3, &offset.x);
+
+		extent.width  = box->width();
+		extent.height = box->height();
+		extent.depth  = box->depth();
+
+		if (create_info.imageType != VK_IMAGE_TYPE_3D)
+		{
+			subresource_info.layerCount = extent.depth;
+			extent.depth = 1;
+		}
+	}
+	else
+	{
+		offset = { 0, 0, 0 };
+
+		extent.width  = std::max(1u, create_info.extent.width  >> (subresource % create_info.mipLevels));
+		extent.height = std::max(1u, create_info.extent.height >> (subresource % create_info.mipLevels));
+		extent.depth  = std::max(1u, create_info.extent.depth  >> (subresource % create_info.mipLevels));
+	}
+}
+void reshade::vulkan::convert_subresource_box(uint32_t subresource, const reshade::api::subresource_box *box, const VkImageCreateInfo &create_info, VkImageSubresourceLayers &subresource_info, VkOffset3D(&offsets)[2])
+{
+	convert_subresource(subresource, create_info, subresource_info);
+
+	if (box != nullptr)
+	{
+		std::copy_n(&box->left, 6, &offsets[0].x);
+
+		if (create_info.imageType != VK_IMAGE_TYPE_3D)
+		{
+			subresource_info.layerCount = box->depth();
+			offsets[1].z = offsets[0].z + 1;
+		}
+	}
+	else
+	{
+		offsets[0] = { 0, 0, 0 };
+		offsets[1] = {
+			static_cast<int32_t>(std::max(1u, create_info.extent.width  >> subresource_info.mipLevel)),
+			static_cast<int32_t>(std::max(1u, create_info.extent.height >> subresource_info.mipLevel)),
+			static_cast<int32_t>(std::max(1u, create_info.extent.depth  >> subresource_info.mipLevel)) };
+	}
+}
+
+auto reshade::vulkan::convert_access_to_usage(VkAccessFlags2 flags) -> api::resource_usage
 {
 	static_assert(
 		VK_ACCESS_INDIRECT_COMMAND_READ_BIT == VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT &&
@@ -516,10 +662,7 @@ auto reshade::vulkan::convert_access_to_usage(VkAccessFlags flags) -> api::resou
 		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT == VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT &&
 		VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT == VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT &&
 		VK_ACCESS_TRANSFER_READ_BIT == VK_ACCESS_2_TRANSFER_READ_BIT &&
-		VK_ACCESS_TRANSFER_WRITE_BIT == VK_ACCESS_2_TRANSFER_WRITE_BIT &&
-		VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT == VK_ACCESS_2_TRANSFORM_FEEDBACK_WRITE_BIT_EXT &&
-		VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR == VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR &&
-		VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR == VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR);
+		VK_ACCESS_TRANSFER_WRITE_BIT == VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 	api::resource_usage result = api::resource_usage::undefined;
 	if ((flags & VK_ACCESS_INDIRECT_COMMAND_READ_BIT) != 0)
@@ -544,10 +687,14 @@ auto reshade::vulkan::convert_access_to_usage(VkAccessFlags flags) -> api::resou
 		result |= api::resource_usage::copy_source;
 	if ((flags & VK_ACCESS_TRANSFER_WRITE_BIT) != 0)
 		result |= api::resource_usage::copy_dest;
+#if VK_EXT_transform_feedback
 	if ((flags & VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT) != 0)
 		result |= api::resource_usage::stream_output;
+#endif
+#if VK_KHR_acceleration_structure
 	if ((flags & (VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR)) != 0)
 		result |= api::resource_usage::acceleration_structure;
+#endif
 
 	return result;
 }
@@ -581,7 +728,7 @@ auto reshade::vulkan::convert_image_layout_to_usage(VkImageLayout layout) -> api
 	case VK_IMAGE_LAYOUT_PREINITIALIZED:
 		return api::resource_usage::cpu_access;
 	case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-	case VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR:
+	// case VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR:
 		return api::resource_usage::present;
 	}
 }
@@ -600,8 +747,10 @@ auto reshade::vulkan::convert_usage_to_access(api::resource_usage state) -> VkAc
 		result |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
 	if ((state & api::resource_usage::constant_buffer) != 0)
 		result |= VK_ACCESS_UNIFORM_READ_BIT;
+#if VK_EXT_transform_feedback
 	if ((state & api::resource_usage::stream_output) != 0)
 		result |= VK_ACCESS_TRANSFORM_FEEDBACK_WRITE_BIT_EXT;
+#endif
 	if ((state & api::resource_usage::indirect_argument) != 0)
 		result |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 	if ((state & api::resource_usage::depth_stencil_read) != 0)
@@ -618,8 +767,10 @@ auto reshade::vulkan::convert_usage_to_access(api::resource_usage state) -> VkAc
 		result |= VK_ACCESS_TRANSFER_WRITE_BIT;
 	if ((state & (api::resource_usage::copy_source | api::resource_usage::resolve_source)) != 0)
 		result |= VK_ACCESS_TRANSFER_READ_BIT;
+#if VK_KHR_acceleration_structure
 	if ((state & api::resource_usage::acceleration_structure) != 0)
 		result |= VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+#endif
 
 	return result;
 }
@@ -654,7 +805,7 @@ auto reshade::vulkan::convert_usage_to_image_layout(api::resource_usage state) -
 		return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	}
 }
-auto reshade::vulkan::convert_usage_to_pipeline_stage(api::resource_usage state, bool src_stage, const VkPhysicalDeviceFeatures &enabled_features, bool enabled_ray_tracing) -> VkPipelineStageFlags
+auto reshade::vulkan::convert_usage_to_pipeline_stage(api::resource_usage state, bool src_stage, const VkPhysicalDeviceFeatures &enabled_features, const GladVulkanContext &context) -> VkPipelineStageFlags
 {
 	if (state == api::resource_usage::general)
 		return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
@@ -667,8 +818,10 @@ auto reshade::vulkan::convert_usage_to_pipeline_stage(api::resource_usage state,
 	VkPipelineStageFlags result = 0;
 	if ((state & (api::resource_usage::index_buffer | api::resource_usage::vertex_buffer)) != 0)
 		result |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+#if VK_EXT_transform_feedback
 	if ((state & api::resource_usage::stream_output) != 0)
 		result |= VK_PIPELINE_STAGE_TRANSFORM_FEEDBACK_BIT_EXT;
+#endif
 	if ((state & api::resource_usage::indirect_argument) != 0)
 		result |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
 	if ((state & api::resource_usage::depth_stencil_read) != 0)
@@ -680,13 +833,26 @@ auto reshade::vulkan::convert_usage_to_pipeline_stage(api::resource_usage state,
 	if ((state & (api::resource_usage::shader_resource_pixel | api::resource_usage::constant_buffer)) != 0)
 		result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 	if ((state & (api::resource_usage::shader_resource_non_pixel | api::resource_usage::constant_buffer)) != 0)
-		result |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | (enabled_features.tessellationShader ? VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT : 0) | (enabled_features.geometryShader ? VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT : 0) | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | (enabled_ray_tracing ? VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR : 0);
+	{
+		result |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+		if (enabled_features.tessellationShader)
+			result |= VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT | VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT;
+		if (enabled_features.geometryShader)
+			result |= VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
+		result |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+#if VK_KHR_acceleration_structure && VK_KHR_ray_tracing_pipeline
+		if (context.KHR_ray_tracing_pipeline)
+			result |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR;
+#endif
+	}
 	if ((state & api::resource_usage::unordered_access) != 0)
 		result |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
 	if ((state & (api::resource_usage::copy_dest | api::resource_usage::copy_source | api::resource_usage::resolve_dest | api::resource_usage::resolve_source)) != 0)
 		result |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+#if VK_KHR_acceleration_structure
 	if ((state & api::resource_usage::acceleration_structure) != 0)
 		result |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+#endif
 
 	return result;
 }
@@ -759,10 +925,12 @@ void reshade::vulkan::convert_usage_to_buffer_usage_flags(api::resource_usage us
 	else
 		buffer_flags &= ~VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
+#if VK_EXT_transform_feedback
 	if ((usage & api::resource_usage::stream_output) != 0)
 		buffer_flags |= VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT;
 	else
 		buffer_flags &= ~(VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT);
+#endif
 
 	if ((usage & api::resource_usage::indirect_argument) != 0)
 		buffer_flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
@@ -774,11 +942,8 @@ void reshade::vulkan::convert_usage_to_buffer_usage_flags(api::resource_usage us
 	else
 		buffer_flags &= ~VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
 
-	if ((usage & api::resource_usage::shader_resource) == api::resource_usage::shader_resource_non_pixel)
-		buffer_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-
 	if ((usage & api::resource_usage::unordered_access) != 0)
-		buffer_flags |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+		buffer_flags |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 	else
 		buffer_flags &= ~(VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
 
@@ -792,12 +957,22 @@ void reshade::vulkan::convert_usage_to_buffer_usage_flags(api::resource_usage us
 	else
 		buffer_flags &= ~VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
+#if VK_KHR_acceleration_structure
+	if ((usage & api::resource_usage::shader_resource) == api::resource_usage::shader_resource_non_pixel || (usage & api::resource_usage::unordered_access) != 0)
+		buffer_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+
 	if ((usage & api::resource_usage::acceleration_structure) != 0)
 		buffer_flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
 	else
 		buffer_flags &= ~VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+#endif
+
+#if VK_KHR_ray_tracing_pipeline
+	if ((usage & api::resource_usage::shader_resource) == api::resource_usage::shader_resource_non_pixel)
+		buffer_flags |= VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+#endif
 }
-void reshade::vulkan::convert_buffer_usage_flags_to_usage(const VkBufferUsageFlags buffer_flags, api::resource_usage &usage)
+void reshade::vulkan::convert_buffer_usage_flags_to_usage(const VkBufferUsageFlags2 buffer_flags, api::resource_usage &usage)
 {
 	using namespace reshade;
 
@@ -819,14 +994,20 @@ void reshade::vulkan::convert_buffer_usage_flags_to_usage(const VkBufferUsageFla
 		usage |= api::resource_usage::vertex_buffer;
 	if ((buffer_flags & VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) != 0)
 		usage |= api::resource_usage::indirect_argument;
+#if VK_EXT_transform_feedback
 	if ((buffer_flags & (VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT | VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_COUNTER_BUFFER_BIT_EXT)) != 0)
 		usage |= api::resource_usage::stream_output;
+#endif
+#if VK_KHR_acceleration_structure
 	if ((buffer_flags & VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR) != 0)
 		usage |= api::resource_usage::acceleration_structure;
 	if ((buffer_flags & VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR) != 0)
 		usage |= api::resource_usage::shader_resource_non_pixel | api::resource_usage::unordered_access;
+#endif
+#if VK_KHR_ray_tracing_pipeline
 	if ((buffer_flags & VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR) != 0)
 		usage |= api::resource_usage::shader_resource_non_pixel;
+#endif
 }
 
 void reshade::vulkan::convert_sampler_desc(const api::sampler_desc &desc, VkSamplerCreateInfo &create_info)
@@ -955,25 +1136,15 @@ void reshade::vulkan::convert_sampler_desc(const api::sampler_desc &desc, VkSamp
 	create_info.minLod = desc.min_lod;
 	create_info.maxLod = desc.max_lod;
 
-	const auto border_color_info = const_cast<VkSamplerCustomBorderColorCreateInfoEXT *>(
-		find_in_structure_chain<VkSamplerCustomBorderColorCreateInfoEXT>(create_info.pNext, VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT));
-
-	const bool is_float_border_color =
+	bool is_float_border_color =
 		create_info.borderColor != VK_BORDER_COLOR_INT_TRANSPARENT_BLACK &&
 		create_info.borderColor != VK_BORDER_COLOR_INT_OPAQUE_BLACK &&
-		create_info.borderColor != VK_BORDER_COLOR_INT_OPAQUE_WHITE &&
-		create_info.borderColor != VK_BORDER_COLOR_INT_CUSTOM_EXT;
+		create_info.borderColor != VK_BORDER_COLOR_INT_OPAQUE_WHITE;
+#if VK_EXT_custom_border_color
+	is_float_border_color = is_float_border_color && create_info.borderColor != VK_BORDER_COLOR_INT_CUSTOM_EXT;
 
-	if (border_color_info == nullptr)
-	{
-		if (desc.border_color[3] == 0.0f)
-			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK : VK_BORDER_COLOR_INT_TRANSPARENT_BLACK;
-		else if (desc.border_color[0] == 0.0f && desc.border_color[1] == 0.0f && desc.border_color[2] == 0.0f)
-			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK : VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-		else
-			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE : VK_BORDER_COLOR_INT_OPAQUE_WHITE;
-	}
-	else
+	if (const auto border_color_info = const_cast<VkSamplerCustomBorderColorCreateInfoEXT *>(find_in_structure_chain<VkSamplerCustomBorderColorCreateInfoEXT>(
+			create_info.pNext, VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT)))
 	{
 		if (is_float_border_color)
 		{
@@ -986,6 +1157,16 @@ void reshade::vulkan::convert_sampler_desc(const api::sampler_desc &desc, VkSamp
 			for (int i = 0; i < 4; ++i)
 				border_color_info->customBorderColor.int32[i] = static_cast<int>(desc.border_color[i]);
 		}
+	}
+	else
+#endif
+	{
+		if (desc.border_color[3] == 0.0f)
+			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK : VK_BORDER_COLOR_INT_TRANSPARENT_BLACK;
+		else if (desc.border_color[0] == 0.0f && desc.border_color[1] == 0.0f && desc.border_color[2] == 0.0f)
+			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK : VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+		else
+			create_info.borderColor = is_float_border_color ? VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE : VK_BORDER_COLOR_INT_OPAQUE_WHITE;
 	}
 }
 reshade::api::sampler_desc reshade::vulkan::convert_sampler_desc(const VkSamplerCreateInfo &create_info)
@@ -1092,8 +1273,10 @@ reshade::api::sampler_desc reshade::vulkan::convert_sampler_desc(const VkSampler
 	desc.min_lod = create_info.minLod;
 	desc.max_lod = create_info.maxLod;
 
-	const auto border_color_info =
-		find_in_structure_chain<VkSamplerCustomBorderColorCreateInfoEXT>(create_info.pNext, VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT);
+#if VK_EXT_custom_border_color
+	const auto border_color_info = find_in_structure_chain<VkSamplerCustomBorderColorCreateInfoEXT>(
+		create_info.pNext, VK_STRUCTURE_TYPE_SAMPLER_CUSTOM_BORDER_COLOR_CREATE_INFO_EXT);
+#endif
 
 	switch (create_info.borderColor)
 	{
@@ -1108,6 +1291,7 @@ reshade::api::sampler_desc reshade::vulkan::convert_sampler_desc(const VkSampler
 	case VK_BORDER_COLOR_INT_OPAQUE_WHITE:
 		std::fill_n(desc.border_color, 4, 1.0f);
 		break;
+#if VK_EXT_custom_border_color
 	case VK_BORDER_COLOR_FLOAT_CUSTOM_EXT:
 		assert(border_color_info != nullptr);
 		std::copy_n(border_color_info->customBorderColor.float32, 4, desc.border_color);
@@ -1117,6 +1301,7 @@ reshade::api::sampler_desc reshade::vulkan::convert_sampler_desc(const VkSampler
 		for (int i = 0; i < 4; ++i)
 			desc.border_color[i] = static_cast<float>(border_color_info->customBorderColor.int32[i]);
 		break;
+#endif
 	}
 
 	return desc;
@@ -1126,9 +1311,6 @@ void reshade::vulkan::convert_resource_desc(const api::resource_desc &desc, VkIm
 {
 	switch (desc.type)
 	{
-	default:
-		assert(false);
-		break;
 	case api::resource_type::texture_1d:
 		create_info.imageType = VK_IMAGE_TYPE_1D;
 		create_info.extent = { desc.texture.width, 1u, 1u };
@@ -1144,6 +1326,9 @@ void reshade::vulkan::convert_resource_desc(const api::resource_desc &desc, VkIm
 		create_info.extent = { desc.texture.width, desc.texture.height, desc.texture.depth_or_layers };
 		create_info.arrayLayers = 1u;
 		break;
+	default:
+		assert(false);
+		break;
 	}
 
 	if (const VkFormat format = convert_format(desc.texture.format);
@@ -1155,8 +1340,7 @@ void reshade::vulkan::convert_resource_desc(const api::resource_desc &desc, VkIm
 	convert_usage_to_image_usage_flags(desc.usage, create_info.usage);
 
 	// A typeless format indicates that views with different typed formats can be created, so set mutable flag
-	if (desc.texture.format == api::format_to_typeless(desc.texture.format) &&
-		desc.texture.format != api::format_to_default_typed(desc.texture.format))
+	if (api::format_is_typeless(desc.texture.format))
 		create_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
 
 	if ((desc.flags & api::resource_flags::sparse_binding) != 0)
@@ -1227,9 +1411,20 @@ reshade::api::resource_desc reshade::vulkan::convert_resource_desc(const VkImage
 	desc.texture.samples = static_cast<uint16_t>(create_info.samples);
 
 	convert_image_usage_flags_to_usage(create_info.usage, desc.usage);
-	if (desc.type == api::resource_type::texture_2d && (
-		create_info.usage & (desc.texture.samples > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : VK_IMAGE_USAGE_TRANSFER_DST_BIT)) != 0)
-		desc.usage |= desc.texture.samples > 1 ? api::resource_usage::resolve_source : api::resource_usage::resolve_dest;
+	if (desc.type == api::resource_type::texture_2d)
+	{
+		if (desc.texture.samples > 1)
+		{
+			if ((create_info.usage & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0)
+				desc.usage |= api::resource_usage::resolve_source;
+		}
+		else
+		{
+			// Images can only be used as resolve destination when also having color attachment or depth-stencil attachment usage
+			if ((create_info.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0 && (create_info.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)) != 0)
+				desc.usage |= api::resource_usage::resolve_dest;
+		}
+	}
 
 	if ((create_info.flags & VK_IMAGE_CREATE_SPARSE_BINDING_BIT) != 0)
 		desc.flags |= api::resource_flags::sparse_binding;
@@ -1246,7 +1441,9 @@ reshade::api::resource_desc reshade::vulkan::convert_resource_desc(const VkImage
 	if (create_info.mipLevels > 1 && (create_info.usage & (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)) == (VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT))
 		desc.flags |= api::resource_flags::generate_mipmaps;
 
-	if (const auto external_memory_info = find_in_structure_chain<VkExternalMemoryImageCreateInfo>(create_info.pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO))
+#if VK_KHR_external_memory_win32
+	if (const auto external_memory_info = find_in_structure_chain<VkExternalMemoryImageCreateInfo>(
+			create_info.pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO))
 	{
 		if (external_memory_info->handleTypes != 0)
 		{
@@ -1256,6 +1453,7 @@ reshade::api::resource_desc reshade::vulkan::convert_resource_desc(const VkImage
 				desc.flags |= api::resource_flags::shared_nt_handle;
 		}
 	}
+#endif
 
 	return desc;
 }
@@ -1264,10 +1462,18 @@ reshade::api::resource_desc reshade::vulkan::convert_resource_desc(const VkBuffe
 	api::resource_desc desc = {};
 	desc.type = api::resource_type::buffer;
 	desc.buffer.size = create_info.size;
-	desc.buffer.stride = 0;
-	convert_buffer_usage_flags_to_usage(create_info.usage, desc.usage);
 
-	if (const auto external_memory_info = find_in_structure_chain<VkExternalMemoryBufferCreateInfo>(create_info.pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO))
+	VkBufferUsageFlags2 usage = create_info.usage;
+	if (const auto usage_flags_info = find_in_structure_chain<VkBufferUsageFlags2CreateInfo>(
+			create_info.pNext, VK_STRUCTURE_TYPE_BUFFER_USAGE_FLAGS_2_CREATE_INFO))
+	{
+		usage = usage_flags_info->usage;
+	}
+	convert_buffer_usage_flags_to_usage(usage, desc.usage);
+
+#if VK_KHR_external_memory_win32
+	if (const auto external_memory_info = find_in_structure_chain<VkExternalMemoryBufferCreateInfo>(
+			create_info.pNext, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO))
 	{
 		if (external_memory_info->handleTypes != 0)
 		{
@@ -1277,6 +1483,7 @@ reshade::api::resource_desc reshade::vulkan::convert_resource_desc(const VkBuffe
 				desc.flags |= api::resource_flags::shared_nt_handle;
 		}
 	}
+#endif
 
 	return desc;
 }
@@ -1285,9 +1492,6 @@ void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &
 {
 	switch (desc.type)
 	{
-	default:
-		assert(false);
-		break;
 	case api::resource_view_type::texture_1d:
 		create_info.viewType = VK_IMAGE_VIEW_TYPE_1D;
 		break;
@@ -1309,6 +1513,9 @@ void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &
 	case api::resource_view_type::texture_cube_array:
 		create_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
 		break;
+	default:
+		assert(false);
+		break;
 	}
 
 	if (const VkFormat format = convert_format(desc.format, &create_info.components);
@@ -1316,9 +1523,9 @@ void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &
 		create_info.format = format;
 
 	create_info.subresourceRange.baseMipLevel = desc.texture.first_level;
-	create_info.subresourceRange.levelCount = desc.texture.level_count;
+	create_info.subresourceRange.levelCount = desc.texture.levels;
 	create_info.subresourceRange.baseArrayLayer = desc.texture.first_layer;
-	create_info.subresourceRange.layerCount = desc.texture.layer_count;
+	create_info.subresourceRange.layerCount = desc.texture.layers;
 }
 void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &desc, VkBufferViewCreateInfo &create_info)
 {
@@ -1331,6 +1538,7 @@ void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &
 	create_info.offset = desc.buffer.offset;
 	create_info.range = desc.buffer.size;
 }
+#if VK_KHR_acceleration_structure
 void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &desc, VkAccelerationStructureCreateInfoKHR &create_info)
 {
 	assert(desc.type == api::resource_view_type::acceleration_structure);
@@ -1338,6 +1546,7 @@ void reshade::vulkan::convert_resource_view_desc(const api::resource_view_desc &
 	create_info.offset = desc.buffer.offset;
 	create_info.size = desc.buffer.size;
 }
+#endif
 reshade::api::resource_view_desc reshade::vulkan::convert_resource_view_desc(const VkImageViewCreateInfo &create_info)
 {
 	api::resource_view_desc desc = {};
@@ -1372,9 +1581,9 @@ reshade::api::resource_view_desc reshade::vulkan::convert_resource_view_desc(con
 
 	desc.format = convert_format(create_info.format, &create_info.components);
 	desc.texture.first_level = create_info.subresourceRange.baseMipLevel;
-	desc.texture.level_count = create_info.subresourceRange.levelCount;
+	desc.texture.levels = create_info.subresourceRange.levelCount;
 	desc.texture.first_layer = create_info.subresourceRange.baseArrayLayer;
-	desc.texture.layer_count = create_info.subresourceRange.layerCount;
+	desc.texture.layers = create_info.subresourceRange.layerCount;
 
 	return desc;
 }
@@ -1388,6 +1597,7 @@ reshade::api::resource_view_desc reshade::vulkan::convert_resource_view_desc(con
 
 	return desc;
 }
+#if VK_KHR_acceleration_structure
 reshade::api::resource_view_desc reshade::vulkan::convert_resource_view_desc(const VkAccelerationStructureCreateInfoKHR &create_info)
 {
 	api::resource_view_desc desc = {};
@@ -1397,6 +1607,7 @@ reshade::api::resource_view_desc reshade::vulkan::convert_resource_view_desc(con
 
 	return desc;
 }
+#endif
 
 void reshade::vulkan::convert_dynamic_states(uint32_t count, const api::dynamic_state *states, std::vector<VkDynamicState> &internal_states)
 {
@@ -1435,6 +1646,9 @@ void reshade::vulkan::convert_dynamic_states(uint32_t count, const api::dynamic_
 		case api::dynamic_state::primitive_topology:
 			internal_states.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY);
 			break;
+		case api::dynamic_state::input_element_stride:
+			internal_states.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE);
+			break;
 		case api::dynamic_state::depth_enable:
 			internal_states.push_back(VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE);
 			break;
@@ -1451,6 +1665,7 @@ void reshade::vulkan::convert_dynamic_states(uint32_t count, const api::dynamic_
 		case api::dynamic_state::back_stencil_func:
 			internal_states.push_back(VK_DYNAMIC_STATE_STENCIL_OP);
 			break;
+#if VK_EXT_extended_dynamic_state2
 		case api::dynamic_state::logic_op:
 			internal_states.push_back(VK_DYNAMIC_STATE_LOGIC_OP_EXT);
 			break;
@@ -1486,9 +1701,12 @@ void reshade::vulkan::convert_dynamic_states(uint32_t count, const api::dynamic_
 		case api::dynamic_state::depth_clip_enable:
 			internal_states.push_back(VK_DYNAMIC_STATE_DEPTH_CLIP_ENABLE_EXT);
 			break;
+#endif
+#if VK_KHR_ray_tracing_pipeline
 		case api::dynamic_state::ray_tracing_pipeline_stack_size:
 			internal_states.push_back(VK_DYNAMIC_STATE_RAY_TRACING_PIPELINE_STACK_SIZE_KHR);
 			break;
+#endif
 		default:
 			assert(false);
 			break;
@@ -1515,6 +1733,8 @@ std::vector<reshade::api::dynamic_state> reshade::vulkan::convert_dynamic_states
 		case VK_DYNAMIC_STATE_BLEND_CONSTANTS:
 			states.push_back(api::dynamic_state::blend_constant);
 			break;
+		case VK_DYNAMIC_STATE_DEPTH_BOUNDS:
+			break;
 		case VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK:
 			states.push_back(api::dynamic_state::front_stencil_read_mask);
 			states.push_back(api::dynamic_state::back_stencil_read_mask);
@@ -1536,6 +1756,9 @@ std::vector<reshade::api::dynamic_state> reshade::vulkan::convert_dynamic_states
 		case VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY:
 			states.push_back(api::dynamic_state::primitive_topology);
 			break;
+		case VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE:
+			states.push_back(api::dynamic_state::input_element_stride);
+			break;
 		case VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE:
 			states.push_back(api::dynamic_state::depth_enable);
 			break;
@@ -1545,6 +1768,8 @@ std::vector<reshade::api::dynamic_state> reshade::vulkan::convert_dynamic_states
 		case VK_DYNAMIC_STATE_DEPTH_COMPARE_OP:
 			states.push_back(api::dynamic_state::depth_func);
 			break;
+		case VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE:
+			break;
 		case VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE:
 			states.push_back(api::dynamic_state::stencil_enable);
 			break;
@@ -1552,13 +1777,20 @@ std::vector<reshade::api::dynamic_state> reshade::vulkan::convert_dynamic_states
 			states.push_back(api::dynamic_state::front_stencil_func);
 			states.push_back(api::dynamic_state::back_stencil_func);
 			break;
+		case VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE:
+			break;
 		case VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE:
 			states.push_back(api::dynamic_state::depth_bias);
 			states.push_back(api::dynamic_state::depth_bias_clamp);
 			states.push_back(api::dynamic_state::depth_bias_slope_scaled);
 			break;
+		case VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE:
+			break;
+#if VK_EXT_extended_dynamic_state2
 		case VK_DYNAMIC_STATE_LOGIC_OP_EXT:
 			states.push_back(api::dynamic_state::logic_op);
+			break;
+		case VK_DYNAMIC_STATE_DEPTH_CLAMP_ENABLE_EXT:
 			break;
 		case VK_DYNAMIC_STATE_POLYGON_MODE_EXT:
 			states.push_back(api::dynamic_state::fill_mode);
@@ -1592,16 +1824,19 @@ std::vector<reshade::api::dynamic_state> reshade::vulkan::convert_dynamic_states
 		case VK_DYNAMIC_STATE_DEPTH_CLIP_ENABLE_EXT:
 			states.push_back(api::dynamic_state::depth_clip_enable);
 			break;
+#endif
+#if VK_KHR_ray_tracing_pipeline
 		case VK_DYNAMIC_STATE_RAY_TRACING_PIPELINE_STACK_SIZE_KHR:
 			states.push_back(api::dynamic_state::ray_tracing_pipeline_stack_size);
 			break;
+#endif
 		}
 	}
 
 	return states;
 }
 
-void reshade::vulkan::convert_input_layout_desc(uint32_t count, const api::input_element *elements, std::vector<VkVertexInputBindingDescription> &vertex_bindings, std::vector<VkVertexInputAttributeDescription> &vertex_attributes)
+void reshade::vulkan::convert_input_layout_desc(uint32_t count, const api::input_element *elements, std::vector<VkVertexInputBindingDescription> &vertex_bindings, std::vector<VkVertexInputAttributeDescription> &vertex_attributes, std::vector<VkVertexInputBindingDivisorDescription> &vertex_binding_divisors)
 {
 	vertex_attributes.reserve(count);
 
@@ -1615,21 +1850,34 @@ void reshade::vulkan::convert_input_layout_desc(uint32_t count, const api::input
 		attribute.format = convert_format(element.format);
 		attribute.offset = element.offset;
 
-		assert(element.instance_step_rate <= 1);
-		const VkVertexInputRate input_rate = element.instance_step_rate > 0 ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
-
 		if (const auto it = std::find_if(vertex_bindings.cbegin(), vertex_bindings.cend(),
-				[&element](const VkVertexInputBindingDescription &input_binding) { return input_binding.binding == element.buffer_binding; });
+				[&element](const VkVertexInputBindingDescription &binding_desc) { return binding_desc.binding == element.buffer_binding; });
 			it != vertex_bindings.cend())
 		{
-			assert(it->inputRate == input_rate && it->stride == element.stride);
+			assert(it->inputRate == (element.instance_step_rate > 0 ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX) && it->stride == element.stride);
 		}
 		else
 		{
-			VkVertexInputBindingDescription &binding = vertex_bindings.emplace_back();
-			binding.binding = element.buffer_binding;
-			binding.stride = element.stride;
-			binding.inputRate = input_rate;
+			VkVertexInputBindingDescription &binding_desc = vertex_bindings.emplace_back();
+			binding_desc.binding = element.buffer_binding;
+			binding_desc.stride = element.stride;
+			binding_desc.inputRate = element.instance_step_rate > 0 ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
+		}
+
+		if (element.instance_step_rate > 1)
+		{
+			if (const auto it = std::find_if(vertex_binding_divisors.cbegin(), vertex_binding_divisors.cend(),
+				[&element](const VkVertexInputBindingDivisorDescription &binding_divisor_desc) { return binding_divisor_desc.binding == element.buffer_binding; });
+				it != vertex_binding_divisors.cend())
+			{
+				assert(it->divisor == element.instance_step_rate);
+			}
+			else
+			{
+				VkVertexInputBindingDivisorDescription &binding_divisor_desc = vertex_binding_divisors.emplace_back();
+				binding_divisor_desc.binding = element.buffer_binding;
+				binding_divisor_desc.divisor = element.instance_step_rate;
+			}
 		}
 	}
 }
@@ -1652,13 +1900,28 @@ std::vector<reshade::api::input_element> reshade::vulkan::convert_input_layout_d
 
 		for (uint32_t b = 0; b < create_info->vertexBindingDescriptionCount; ++b)
 		{
-			const VkVertexInputBindingDescription &binding = create_info->pVertexBindingDescriptions[b];
+			const VkVertexInputBindingDescription &binding_desc = create_info->pVertexBindingDescriptions[b];
 
-			if (binding.binding == attribute.binding)
+			if (binding_desc.binding == attribute.binding)
 			{
-				elements[a].stride = binding.stride;
-				elements[a].instance_step_rate = binding.inputRate != VK_VERTEX_INPUT_RATE_VERTEX ? 1 : 0;
+				elements[a].stride = binding_desc.stride;
+				elements[a].instance_step_rate = binding_desc.inputRate != VK_VERTEX_INPUT_RATE_VERTEX ? 1 : 0;
 				break;
+			}
+		}
+
+		if (const auto binding_divisor_info = find_in_structure_chain<VkPipelineVertexInputDivisorStateCreateInfo>(
+				create_info->pNext, VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_DIVISOR_STATE_CREATE_INFO))
+		{
+			for (uint32_t b = 0; b < binding_divisor_info->vertexBindingDivisorCount; ++b)
+			{
+				const VkVertexInputBindingDivisorDescription &divisor_desc = binding_divisor_info->pVertexBindingDivisors[b];
+
+				if (divisor_desc.binding == attribute.binding)
+				{
+					elements[a].instance_step_rate = divisor_desc.divisor;
+					break;
+				}
 			}
 		}
 	}
@@ -1666,6 +1929,7 @@ std::vector<reshade::api::input_element> reshade::vulkan::convert_input_layout_d
 	return elements;
 }
 
+#if VK_EXT_transform_feedback
 void reshade::vulkan::convert_stream_output_desc(const api::stream_output_desc &desc, VkPipelineRasterizationStateCreateInfo &create_info)
 {
 	if (const auto stream_info = const_cast<VkPipelineRasterizationStateStreamCreateInfoEXT *>(
@@ -1680,7 +1944,8 @@ reshade::api::stream_output_desc reshade::vulkan::convert_stream_output_desc(con
 
 	if (create_info != nullptr)
 	{
-		if (const auto stream_info = find_in_structure_chain<VkPipelineRasterizationStateStreamCreateInfoEXT>(create_info->pNext, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT))
+		if (const auto stream_info = find_in_structure_chain<VkPipelineRasterizationStateStreamCreateInfoEXT>(
+				create_info->pNext, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_STREAM_CREATE_INFO_EXT))
 		{
 			desc.rasterized_stream = stream_info->rasterizationStream;
 		}
@@ -1688,6 +1953,7 @@ reshade::api::stream_output_desc reshade::vulkan::convert_stream_output_desc(con
 
 	return desc;
 }
+#endif
 void reshade::vulkan::convert_blend_desc(const api::blend_desc &desc, VkPipelineColorBlendStateCreateInfo &create_info, VkPipelineMultisampleStateCreateInfo &multisample_create_info)
 {
 	create_info.logicOpEnable = desc.logic_op_enable[0];
@@ -1753,11 +2019,13 @@ void reshade::vulkan::convert_rasterizer_desc(const api::rasterizer_desc &desc, 
 	create_info.depthBiasClamp = desc.depth_bias_clamp;
 	create_info.depthBiasSlopeFactor = desc.slope_scaled_depth_bias;
 
+#if VK_EXT_conservative_rasterization
 	if (const auto conservative_rasterization_info = const_cast<VkPipelineRasterizationConservativeStateCreateInfoEXT *>(
 			find_in_structure_chain<VkPipelineRasterizationConservativeStateCreateInfoEXT>(create_info.pNext, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT)))
 	{
 		conservative_rasterization_info->conservativeRasterizationMode = static_cast<VkConservativeRasterizationModeEXT>(desc.conservative_rasterization);
 	}
+#endif
 }
 reshade::api::rasterizer_desc reshade::vulkan::convert_rasterizer_desc(const VkPipelineRasterizationStateCreateInfo *create_info, const VkPipelineMultisampleStateCreateInfo *multisample_create_info)
 {
@@ -1774,10 +2042,13 @@ reshade::api::rasterizer_desc reshade::vulkan::convert_rasterizer_desc(const VkP
 		desc.depth_clip_enable = !create_info->depthClampEnable;
 		desc.scissor_enable = true;
 
-		if (const auto conservative_rasterization_info = find_in_structure_chain<VkPipelineRasterizationConservativeStateCreateInfoEXT>(create_info->pNext, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT))
+#if VK_EXT_conservative_rasterization
+		if (const auto conservative_rasterization_info = find_in_structure_chain<VkPipelineRasterizationConservativeStateCreateInfoEXT>(
+				create_info->pNext, VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_CONSERVATIVE_STATE_CREATE_INFO_EXT))
 		{
 			desc.conservative_rasterization = static_cast<uint32_t>(conservative_rasterization_info->conservativeRasterizationMode);
 		}
+#endif
 	}
 
 	if (multisample_create_info != nullptr)
@@ -1978,8 +2249,8 @@ auto reshade::vulkan::convert_primitive_topology(api::primitive_topology value) 
 	case api::primitive_topology::patch_list_32_cp:
 		// Also need to adjust 'patchControlPoints' externally
 		return VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-	default:
 	case api::primitive_topology::undefined:
+	default:
 		assert(false);
 		return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
 	}
@@ -2012,15 +2283,14 @@ auto reshade::vulkan::convert_primitive_topology(VkPrimitiveTopology value) -> a
 		// This needs to be adjusted externally based on 'patchControlPoints'
 		return api::primitive_topology::patch_list_01_cp;
 	default:
-	case VK_PRIMITIVE_TOPOLOGY_MAX_ENUM:
 		assert(false);
 		return api::primitive_topology::undefined;
 	}
 }
 
-auto reshade::vulkan::convert_query_type(api::query_type type) -> VkQueryType
+auto reshade::vulkan::convert_query_type(api::query_type value) -> VkQueryType
 {
-	switch (type)
+	switch (value)
 	{
 	case api::query_type::occlusion:
 	case api::query_type::binary_occlusion:
@@ -2029,19 +2299,31 @@ auto reshade::vulkan::convert_query_type(api::query_type type) -> VkQueryType
 		return VK_QUERY_TYPE_TIMESTAMP;
 	case api::query_type::pipeline_statistics:
 		return VK_QUERY_TYPE_PIPELINE_STATISTICS;
+#if VK_EXT_transform_feedback
 	case api::query_type::stream_output_statistics_0:
 	case api::query_type::stream_output_statistics_1:
 	case api::query_type::stream_output_statistics_2:
 	case api::query_type::stream_output_statistics_3:
 		return VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT;
+#endif
+#if VK_KHR_acceleration_structure
+	case api::query_type::acceleration_structure_size:
+		return VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR;
+	case api::query_type::acceleration_structure_compacted_size:
+		return VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+	case api::query_type::acceleration_structure_serialization_size:
+		return VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR;
+	case api::query_type::acceleration_structure_bottom_level_acceleration_structure_pointers:
+		return VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR;
+#endif
 	default:
 		assert(false);
 		return VK_QUERY_TYPE_MAX_ENUM;
 	}
 }
-auto reshade::vulkan::convert_query_type(VkQueryType type, uint32_t index) -> api::query_type
+auto reshade::vulkan::convert_query_type(VkQueryType value, uint32_t index) -> api::query_type
 {
-	switch (type)
+	switch (value)
 	{
 	case VK_QUERY_TYPE_OCCLUSION:
 		assert(index == 0);
@@ -2052,9 +2334,25 @@ auto reshade::vulkan::convert_query_type(VkQueryType type, uint32_t index) -> ap
 	case VK_QUERY_TYPE_PIPELINE_STATISTICS:
 		assert(index == 0);
 		return api::query_type::pipeline_statistics;
+#if VK_EXT_transform_feedback
 	case VK_QUERY_TYPE_TRANSFORM_FEEDBACK_STREAM_EXT:
 		assert(index <= 3);
 		return static_cast<api::query_type>(static_cast<uint32_t>(api::query_type::stream_output_statistics_0) + index);
+#endif
+#if VK_KHR_acceleration_structure
+	case VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR:
+		assert(index == 0);
+		return api::query_type::acceleration_structure_compacted_size;
+	case VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR:
+		assert(index == 0);
+		return api::query_type::acceleration_structure_serialization_size;
+	case VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SERIALIZATION_BOTTOM_LEVEL_POINTERS_KHR:
+		assert(index == 0);
+		return api::query_type::acceleration_structure_bottom_level_acceleration_structure_pointers;
+	case VK_QUERY_TYPE_ACCELERATION_STRUCTURE_SIZE_KHR:
+		assert(index == 0);
+		return api::query_type::acceleration_structure_size;
+#endif
 	default:
 		assert(false);
 		return static_cast<api::query_type>(UINT32_MAX);
@@ -2081,10 +2379,15 @@ auto reshade::vulkan::convert_descriptor_type(api::descriptor_type value) -> VkD
 		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	case api::descriptor_type::shader_storage_buffer:
 		return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	case api::descriptor_type::constant_buffer_with_dynamic_offset:
+		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	case api::descriptor_type::shader_storage_buffer_with_dynamic_offset:
+		return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+#if VK_KHR_acceleration_structure
 	case api::descriptor_type::acceleration_structure:
 		return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+#endif
 	default:
-		assert(false);
 		return static_cast<VkDescriptorType>(value);
 	}
 }
@@ -2106,19 +2409,67 @@ auto reshade::vulkan::convert_descriptor_type(VkDescriptorType value) -> api::de
 	case VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER:
 		return api::descriptor_type::buffer_unordered_access_view;
 	case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-	case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
 		return api::descriptor_type::constant_buffer;
 	case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-	case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
 		return api::descriptor_type::shader_storage_buffer;
+	case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+		return api::descriptor_type::constant_buffer_with_dynamic_offset;
+	case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+		return api::descriptor_type::shader_storage_buffer_with_dynamic_offset;
+#if VK_KHR_acceleration_structure
 	case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
 		return api::descriptor_type::acceleration_structure;
+#endif
 	default:
 		assert(false);
 		return static_cast<api::descriptor_type>(value);
 	}
 }
+auto reshade::vulkan::convert_descriptor_range_flags(api::descriptor_range_flags value) -> VkDescriptorBindingFlags
+{
+	VkDescriptorBindingFlags result = 0;
+	if ((value & (api::descriptor_range_flags::descriptors_volatile | api::descriptor_range_flags::data_volatile)) != 0)
+		result |= VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+	if ((value & api::descriptor_range_flags::data_static_while_set_at_execute) != 0)
+		result |= VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT;
+	if ((value & api::descriptor_range_flags::partially_bound) != 0)
+		result |= VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
 
+	return result;
+}
+auto reshade::vulkan::convert_descriptor_range_flags(VkDescriptorBindingFlags value) -> api::descriptor_range_flags
+{
+	api::descriptor_range_flags result = api::descriptor_range_flags::none;
+	if ((value & VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT) != 0)
+		result |= api::descriptor_range_flags::descriptors_volatile | api::descriptor_range_flags::data_volatile;
+	if ((value & VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT) != 0)
+		result |= api::descriptor_range_flags::data_static_while_set_at_execute;
+	if ((value & VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT) != 0)
+		result |= api::descriptor_range_flags::partially_bound;
+
+	return result;
+}
+
+auto reshade::vulkan::convert_render_pass_flags(api::render_pass_flags value) -> VkRenderingFlags
+{
+	VkRenderingFlags result = 0;
+	if ((value & api::render_pass_flags::resume) != 0)
+		result |= VK_RENDERING_RESUMING_BIT;
+	if ((value & api::render_pass_flags::suspend) != 0)
+		result |= VK_RENDERING_SUSPENDING_BIT;
+
+	return result;
+}
+auto reshade::vulkan::convert_render_pass_flags(VkRenderingFlags value) -> api::render_pass_flags
+{
+	api::render_pass_flags result = api::render_pass_flags::none;
+	if ((value & VK_RENDERING_RESUMING_BIT) != 0)
+		result |= api::render_pass_flags::resume;
+	if ((value & (VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT | VK_RENDERING_SUSPENDING_BIT)) != 0)
+		result |= api::render_pass_flags::suspend;
+
+	return result;
+}
 auto reshade::vulkan::convert_render_pass_load_op(api::render_pass_load_op value) -> VkAttachmentLoadOp
 {
 	switch (value)
@@ -2133,7 +2484,7 @@ auto reshade::vulkan::convert_render_pass_load_op(api::render_pass_load_op value
 	case api::render_pass_load_op::discard:
 		return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	case api::render_pass_load_op::no_access:
-		return VK_ATTACHMENT_LOAD_OP_NONE_EXT;
+		return VK_ATTACHMENT_LOAD_OP_NONE;
 	}
 }
 auto reshade::vulkan::convert_render_pass_load_op(VkAttachmentLoadOp value) -> api::render_pass_load_op
@@ -2149,7 +2500,7 @@ auto reshade::vulkan::convert_render_pass_load_op(VkAttachmentLoadOp value) -> a
 		return api::render_pass_load_op::clear;
 	case VK_ATTACHMENT_LOAD_OP_DONT_CARE:
 		return api::render_pass_load_op::discard;
-	case VK_ATTACHMENT_LOAD_OP_NONE_EXT:
+	case VK_ATTACHMENT_LOAD_OP_NONE:
 		return api::render_pass_load_op::no_access;
 	}
 }
@@ -2165,7 +2516,7 @@ auto reshade::vulkan::convert_render_pass_store_op(api::render_pass_store_op val
 	case api::render_pass_store_op::discard:
 		return VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	case api::render_pass_store_op::no_access:
-		return VK_ATTACHMENT_STORE_OP_NONE_EXT;
+		return VK_ATTACHMENT_STORE_OP_NONE;
 	}
 }
 auto reshade::vulkan::convert_render_pass_store_op(VkAttachmentStoreOp value) -> api::render_pass_store_op
@@ -2179,35 +2530,119 @@ auto reshade::vulkan::convert_render_pass_store_op(VkAttachmentStoreOp value) ->
 		return api::render_pass_store_op::store;
 	case VK_ATTACHMENT_STORE_OP_DONT_CARE:
 		return api::render_pass_store_op::discard;
-	case VK_ATTACHMENT_STORE_OP_NONE_EXT:
+	case VK_ATTACHMENT_STORE_OP_NONE:
 		return api::render_pass_store_op::no_access;
 	}
+}
+
+void reshade::vulkan::convert_render_pass_render_target_desc(const api::render_pass_render_target_desc &desc, VkRenderingAttachmentInfo &color_attachment_info)
+{
+	color_attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+	color_attachment_info.imageView = (VkImageView)desc.view.handle;
+	color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	color_attachment_info.loadOp = convert_render_pass_load_op(desc.load_op);
+	color_attachment_info.storeOp = convert_render_pass_store_op(desc.store_op);
+	std::copy_n(desc.clear_color, 4, color_attachment_info.clearValue.color.float32);
+}
+reshade::api::render_pass_render_target_desc reshade::vulkan::convert_render_pass_render_target_desc(const VkRenderingAttachmentInfo *color_attachment_info)
+{
+	reshade::api::render_pass_render_target_desc desc;
+	desc.view = { (uint64_t)color_attachment_info->imageView };
+	desc.load_op = convert_render_pass_load_op(color_attachment_info->loadOp);
+	desc.store_op = convert_render_pass_store_op(color_attachment_info->storeOp);
+	std::copy_n(color_attachment_info->clearValue.color.float32, 4, desc.clear_color);
+
+	return desc;
+}
+void reshade::vulkan::convert_render_pass_depth_stencil_desc(const api::render_pass_depth_stencil_desc &desc, VkImageAspectFlags aspect_flags, VkRenderingAttachmentInfo &depth_attachment_info, VkRenderingAttachmentInfo &stencil_attachment_info)
+{
+	if ((aspect_flags & VK_IMAGE_ASPECT_DEPTH_BIT) != 0)
+	{
+		depth_attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+		depth_attachment_info.imageView = (VkImageView)desc.view.handle;
+		depth_attachment_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		depth_attachment_info.loadOp = convert_render_pass_load_op(desc.depth_load_op);
+		depth_attachment_info.storeOp = convert_render_pass_store_op(desc.depth_store_op);
+		depth_attachment_info.clearValue.depthStencil.depth = desc.clear_depth;
+	}
+	if ((aspect_flags & VK_IMAGE_ASPECT_STENCIL_BIT) != 0)
+	{
+		stencil_attachment_info = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+		stencil_attachment_info.imageView = (VkImageView)desc.view.handle;
+		stencil_attachment_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		stencil_attachment_info.loadOp = convert_render_pass_load_op(desc.stencil_load_op);
+		stencil_attachment_info.storeOp = convert_render_pass_store_op(desc.stencil_store_op);
+		stencil_attachment_info.clearValue.depthStencil.stencil = desc.clear_stencil;
+	}
+}
+reshade::api::render_pass_depth_stencil_desc reshade::vulkan::convert_render_pass_depth_stencil_desc(const VkRenderingAttachmentInfo *depth_attachment_info, const VkRenderingAttachmentInfo *stencil_attachment_info)
+{
+	api::render_pass_depth_stencil_desc desc;
+	if (depth_attachment_info != nullptr)
+	{
+		desc.view = { (uint64_t)depth_attachment_info->imageView };
+		desc.depth_load_op = convert_render_pass_load_op(depth_attachment_info->loadOp);
+		desc.depth_store_op = convert_render_pass_store_op(depth_attachment_info->storeOp);
+		desc.clear_depth = depth_attachment_info->clearValue.depthStencil.depth;
+	}
+	else
+	{
+		desc.depth_load_op = api::render_pass_load_op::discard;
+		desc.depth_store_op = api::render_pass_store_op::discard;
+		desc.clear_depth = 0.0f;
+	}
+	if (stencil_attachment_info != nullptr)
+	{
+		assert(depth_attachment_info == nullptr || depth_attachment_info->imageView == stencil_attachment_info->imageView);
+
+		desc.view = { (uint64_t)stencil_attachment_info->imageView };
+		desc.stencil_load_op = convert_render_pass_load_op(stencil_attachment_info->loadOp);
+		desc.stencil_store_op = convert_render_pass_store_op(stencil_attachment_info->storeOp);
+		desc.clear_stencil = static_cast<uint8_t>(stencil_attachment_info->clearValue.depthStencil.stencil);
+	}
+	else
+	{
+		desc.stencil_load_op = api::render_pass_load_op::discard;
+		desc.stencil_store_op = api::render_pass_store_op::discard;
+		desc.clear_stencil = 0;
+	}
+
+	return desc;
 }
 
 auto reshade::vulkan::convert_pipeline_flags(api::pipeline_flags value) -> VkPipelineCreateFlags
 {
 	VkPipelineCreateFlags result = 0;
+#if VK_KHR_pipeline_library
 	if ((value & api::pipeline_flags::library) != 0)
 		result |= VK_PIPELINE_CREATE_LIBRARY_BIT_KHR;
+#endif
+#if VK_KHR_ray_tracing_pipeline
 	if ((value & api::pipeline_flags::skip_triangles) != 0)
 		result |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR;
 	if ((value & api::pipeline_flags::skip_aabbs) != 0)
 		result |= VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR;
+#endif
 
 	return result;
 }
-auto reshade::vulkan::convert_pipeline_flags(VkPipelineCreateFlags value) -> api::pipeline_flags
+auto reshade::vulkan::convert_pipeline_flags(VkPipelineCreateFlags2 value) -> api::pipeline_flags
 {
 	api::pipeline_flags result = api::pipeline_flags::none;
+#if VK_KHR_pipeline_library
 	if ((value & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) != 0)
 		result |= api::pipeline_flags::library;
+#endif
+#if VK_KHR_ray_tracing_pipeline
 	if ((value & VK_PIPELINE_CREATE_RAY_TRACING_SKIP_TRIANGLES_BIT_KHR) != 0)
 		result |= api::pipeline_flags::skip_triangles;
 	if ((value & VK_PIPELINE_CREATE_RAY_TRACING_SKIP_AABBS_BIT_KHR) != 0)
 		result |= api::pipeline_flags::skip_aabbs;
+#endif
 
 	return result;
 }
+#if VK_KHR_ray_tracing_pipeline
 auto reshade::vulkan::convert_shader_group_type(api::shader_group_type value) -> VkRayTracingShaderGroupTypeKHR
 {
 	switch (value)
@@ -2240,6 +2675,8 @@ auto reshade::vulkan::convert_shader_group_type(VkRayTracingShaderGroupTypeKHR v
 		return api::shader_group_type::hit_group_aabbs;
 	}
 }
+#endif
+#if VK_KHR_acceleration_structure
 auto reshade::vulkan::convert_acceleration_structure_type(api::acceleration_structure_type value) -> VkAccelerationStructureTypeKHR
 {
 	return static_cast<VkAccelerationStructureTypeKHR>(value);
@@ -2301,7 +2738,7 @@ void reshade::vulkan::convert_acceleration_structure_build_input(const api::acce
 		geometry.geometry.triangles.vertexData.deviceAddress = build_input.triangles.vertex_offset;
 		geometry.geometry.triangles.vertexStride = build_input.triangles.vertex_stride;
 		geometry.geometry.triangles.maxVertex = build_input.triangles.vertex_count;
-		geometry.geometry.triangles.indexType = build_input.triangles.index_format == api::format::r8_uint ? VK_INDEX_TYPE_UINT8_EXT : build_input.triangles.index_format == api::format::r16_uint ? VK_INDEX_TYPE_UINT16 : build_input.triangles.index_format == api::format::r32_uint ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_NONE_KHR;
+		geometry.geometry.triangles.indexType = build_input.triangles.index_format == api::format::r8_uint ? VK_INDEX_TYPE_UINT8 : build_input.triangles.index_format == api::format::r16_uint ? VK_INDEX_TYPE_UINT16 : build_input.triangles.index_format == api::format::r32_uint ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_NONE_KHR;
 		geometry.geometry.triangles.indexData.deviceAddress = build_input.triangles.index_offset;
 		geometry.geometry.triangles.transformData.deviceAddress = build_input.triangles.transform_offset;
 		range_info.primitiveCount = geometry.geometry.triangles.indexData.deviceAddress != 0 ? build_input.triangles.index_count / 3 : build_input.triangles.vertex_count / 3;
@@ -2340,7 +2777,7 @@ reshade::api::acceleration_structure_build_input reshade::vulkan::convert_accele
 		build_input.triangles.vertex_format = convert_format(geometry.geometry.triangles.vertexFormat);
 		build_input.triangles.index_offset = geometry.geometry.triangles.indexData.deviceAddress;
 		build_input.triangles.index_count = geometry.geometry.triangles.indexData.deviceAddress != 0 ? range_info.primitiveCount * 3 : 0;
-		build_input.triangles.index_format = geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT8_EXT ? api::format::r8_uint : geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT16 ? api::format::r16_uint : geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT32 ? api::format::r32_uint : api::format::unknown;
+		build_input.triangles.index_format = geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT8 ? api::format::r8_uint : geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT16 ? api::format::r16_uint : geometry.geometry.triangles.indexType == VK_INDEX_TYPE_UINT32 ? api::format::r32_uint : api::format::unknown;
 		build_input.triangles.transform_offset = geometry.geometry.triangles.transformData.deviceAddress + range_info.transformOffset;
 		break;
 	case VK_GEOMETRY_TYPE_AABBS_KHR:
@@ -2358,4 +2795,59 @@ reshade::api::acceleration_structure_build_input reshade::vulkan::convert_accele
 	build_input.flags = static_cast<api::acceleration_structure_build_input_flags>(geometry.flags);
 
 	return build_input;
+}
+#endif
+
+auto reshade::vulkan::convert_shader_stages(VkPipelineBindPoint value) -> api::shader_stage
+{
+	switch (value)
+	{
+	case VK_PIPELINE_BIND_POINT_GRAPHICS:
+		return api::shader_stage::all_graphics;
+	case VK_PIPELINE_BIND_POINT_COMPUTE:
+		return api::shader_stage::all_compute;
+#if VK_KHR_ray_tracing_pipeline
+	case VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR:
+		return api::shader_stage::all_ray_tracing;
+#endif
+	default:
+		// Unknown pipeline bind point
+		assert(false);
+		return static_cast<api::shader_stage>(0);
+	}
+}
+auto reshade::vulkan::convert_pipeline_stages(api::pipeline_stage value) -> VkPipelineBindPoint
+{
+	switch (value)
+	{
+	default:
+		assert(false);
+		[[fallthrough]];
+	case api::pipeline_stage::all_graphics:
+		return VK_PIPELINE_BIND_POINT_GRAPHICS;
+	case api::pipeline_stage::all_compute:
+		return VK_PIPELINE_BIND_POINT_COMPUTE;
+#if VK_KHR_ray_tracing_pipeline
+	case api::pipeline_stage::all_ray_tracing:
+		return VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+#endif
+	}
+}
+auto reshade::vulkan::convert_pipeline_stages(VkPipelineBindPoint value) -> api::pipeline_stage
+{
+	switch (value)
+	{
+	case VK_PIPELINE_BIND_POINT_GRAPHICS:
+		return api::pipeline_stage::all_graphics;
+	case VK_PIPELINE_BIND_POINT_COMPUTE:
+		return api::pipeline_stage::all_compute;
+#if VK_KHR_ray_tracing_pipeline
+	case VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR:
+		return api::pipeline_stage::all_ray_tracing;
+#endif
+	default:
+		// Unknown pipeline bind point
+		assert(false);
+		return static_cast<api::pipeline_stage>(0);
+	}
 }

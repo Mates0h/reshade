@@ -23,16 +23,16 @@ namespace reshade::d3d10
 		bool check_capability(api::device_caps capability) const final;
 		bool check_format_support(api::format format, api::resource_usage usage) const final;
 
-		bool create_sampler(const api::sampler_desc &desc, api::sampler *out_handle) final;
-		void destroy_sampler(api::sampler handle) final;
+		bool create_sampler(const api::sampler_desc &desc, api::sampler *out_sampler) final;
+		void destroy_sampler(api::sampler sampler) final;
 
-		bool create_resource(const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource *out_handle, HANDLE *shared_handle = nullptr) final;
-		void destroy_resource(api::resource handle) final;
+		bool create_resource(const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource *out_resource, HANDLE *shared_handle = nullptr) final;
+		void destroy_resource(api::resource resource) final;
 
 		api::resource_desc get_resource_desc(api::resource resource) const final;
 
-		bool create_resource_view(api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view *out_handle) final;
-		void destroy_resource_view(api::resource_view handle) final;
+		bool create_resource_view(api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view *out_view) final;
+		void destroy_resource_view(api::resource_view view) final;
 
 		api::resource get_resource_from_view(api::resource_view view) const final;
 		api::resource_view_desc get_resource_view_desc(api::resource_view view) const final;
@@ -44,21 +44,22 @@ namespace reshade::d3d10
 		bool map_texture_region(api::resource resource, uint32_t subresource, const api::subresource_box *box, api::map_access access, api::subresource_data *out_data) final;
 		void unmap_texture_region(api::resource resource, uint32_t subresource) final;
 
-		void update_buffer_region(const void *data, api::resource resource, uint64_t offset, uint64_t size) final;
-		void update_texture_region(const api::subresource_data &data, api::resource resource, uint32_t subresource, const api::subresource_box *box) final;
+		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) final;
+		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
 
-		bool create_pipeline(api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects, api::pipeline *out_handle) final;
-		bool create_input_layout(uint32_t count, const api::input_element *desc, const api::shader_desc &signature, api::pipeline *out_handle);
-		bool create_vertex_shader(const api::shader_desc &desc, api::pipeline *out_handle);
-		bool create_geometry_shader(const api::shader_desc &desc, api::pipeline *out_handle);
-		bool create_pixel_shader(const api::shader_desc &desc, api::pipeline *out_handle);
-		bool create_rasterizer_state(const api::rasterizer_desc &desc, api::pipeline *out_handle);
-		bool create_blend_state(const api::blend_desc &desc, api::pipeline *out_handle);
-		bool create_depth_stencil_state(const api::depth_stencil_desc &desc, api::pipeline *out_handle);
-		void destroy_pipeline(api::pipeline handle) final;
+		bool create_input_layout(uint32_t count, const api::input_element *desc, const api::shader_desc &signature, api::pipeline *out_pipeline);
+		bool create_vertex_shader(const api::shader_desc &desc, api::pipeline *out_pipeline);
+		bool create_geometry_shader(const api::shader_desc &desc, api::pipeline *out_pipeline);
+		bool create_pixel_shader(const api::shader_desc &desc, api::pipeline *out_pipeline);
+		bool create_rasterizer_state(const api::rasterizer_desc &desc, api::pipeline *out_pipeline);
+		bool create_blend_state(const api::blend_desc &desc, api::pipeline *out_pipeline);
+		bool create_depth_stencil_state(const api::depth_stencil_desc &desc, api::pipeline *out_pipeline);
 
-		bool create_pipeline_layout(uint32_t param_count, const api::pipeline_layout_param *params, api::pipeline_layout *out_handle) final;
-		void destroy_pipeline_layout(api::pipeline_layout handle) final;
+		bool create_pipeline(api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects, api::pipeline *out_pipeline) final;
+		void destroy_pipeline(api::pipeline pipeline) final;
+
+		bool create_pipeline_layout(uint32_t param_count, const api::pipeline_layout_param *params, api::pipeline_layout *out_layout) final;
+		void destroy_pipeline_layout(api::pipeline_layout layout) final;
 
 		bool allocate_descriptor_tables(uint32_t count, api::pipeline_layout layout, uint32_t layout_param, api::descriptor_table *out_tables) final;
 		void free_descriptor_tables(uint32_t count, const api::descriptor_table *tables) final;
@@ -68,16 +69,16 @@ namespace reshade::d3d10
 		void copy_descriptor_tables(uint32_t count, const api::descriptor_table_copy *copies) final;
 		void update_descriptor_tables(uint32_t count, const api::descriptor_table_update *updates) final;
 
-		bool create_query_heap(api::query_type type, uint32_t size, api::query_heap *out_handle) final;
-		void destroy_query_heap(api::query_heap handle) final;
+		bool create_query_heap(api::query_type type, uint32_t count, api::query_heap *out_heap) final;
+		void destroy_query_heap(api::query_heap heap) final;
 
-		bool get_query_heap_results(api::query_heap heap, uint32_t first, uint32_t count, void *results, uint32_t stride) final;
+		bool get_query_heap_results(api::query_heap heap, api::query_type type, uint32_t first, uint32_t count, void *results, uint32_t stride) final;
 
-		void set_resource_name(api::resource handle, const char *name) final;
-		void set_resource_view_name(api::resource_view handle, const char *name) final;
+		void set_resource_name(api::resource resource, const char *name) final;
+		void set_resource_view_name(api::resource_view view, const char *name) final;
 
-		bool create_fence(uint64_t initial_value, api::fence_flags flags, api::fence *out_handle, HANDLE *shared_handle = nullptr) final;
-		void destroy_fence(api::fence handle) final;
+		bool create_fence(uint64_t initial_value, api::fence_flags flags, api::fence *out_fence, HANDLE *shared_handle = nullptr) final;
+		void destroy_fence(api::fence fence) final;
 
 		uint64_t get_completed_fence_value(api::fence fence) const final;
 
@@ -87,7 +88,7 @@ namespace reshade::d3d10
 
 		void get_acceleration_structure_size(api::acceleration_structure_type type, api::acceleration_structure_build_flags flags, uint32_t input_count, const api::acceleration_structure_build_input *inputs, uint64_t *out_size, uint64_t *out_build_scratch_size, uint64_t *out_update_scratch_size) const final;
 
-		bool get_pipeline_shader_group_handles(api::pipeline pipeline, uint32_t first, uint32_t count, void *groups) final;
+		bool get_pipeline_shader_group_handles(api::pipeline pipeline, uint32_t first, uint32_t count, void *out_handles) final;
 
 		uint64_t get_timestamp_frequency() const final;
 
@@ -103,7 +104,7 @@ namespace reshade::d3d10
 
 		void barrier(uint32_t count, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states) final;
 
-		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds) final;
+		void begin_render_pass2(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags flags) final;
 		void end_render_pass() final;
 		void bind_render_targets_and_depth_stencil(uint32_t count, const api::resource_view *rtvs, api::resource_view dsv) final;
 
@@ -118,7 +119,7 @@ namespace reshade::d3d10
 
 		void push_constants(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, uint32_t first, uint32_t count, const void *values) final;
 		void push_descriptors(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, const api::descriptor_table_update &update) final;
-		void bind_descriptor_tables(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables) final;
+		void bind_descriptor_tables2(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables, uint32_t dynamic_offset_count, const uint32_t *dynamic_offsets) final;
 
 		void bind_index_buffer(api::resource buffer, uint64_t offset, uint32_t index_size) final;
 		void bind_vertex_buffers(uint32_t first, uint32_t count, const api::resource *buffers, const uint64_t *offsets, const uint32_t *strides) final;
@@ -136,7 +137,7 @@ namespace reshade::d3d10
 		void copy_buffer_to_texture(api::resource source, uint64_t source_offset, uint32_t row_length, uint32_t slice_height, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
 		void copy_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box, api::filter_mode filter) final;
 		void copy_texture_to_buffer(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint64_t dest_offset, uint32_t row_length, uint32_t slice_height) final;
-		void resolve_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, int32_t dest_x, int32_t dest_y, int32_t dest_z, api::format format) final;
+		void resolve_texture_region(api::resource source, uint32_t source_subresource, const api::subresource_box *source_box, api::resource dest, uint32_t dest_subresource, uint32_t dest_x, uint32_t dest_y, uint32_t dest_z, api::format format) final;
 
 		void clear_depth_stencil_view(api::resource_view dsv, const float *depth, const uint8_t *stencil, uint32_t rect_count, const api::rect *rects) final;
 		void clear_render_target_view(api::resource_view rtv, const float color[4], uint32_t rect_count, const api::rect *rects) final;
@@ -151,13 +152,14 @@ namespace reshade::d3d10
 
 		void copy_acceleration_structure(api::resource_view source, api::resource_view dest, api::acceleration_structure_copy_mode mode) final;
 		void build_acceleration_structure(api::acceleration_structure_type type, api::acceleration_structure_build_flags flags, uint32_t input_count, const api::acceleration_structure_build_input *inputs, api::resource scratch, uint64_t scratch_offset, api::resource_view source, api::resource_view dest, api::acceleration_structure_build_mode mode) final;
+		void query_acceleration_structures(uint32_t count, const api::resource_view *acceleration_structures, api::query_heap heap, api::query_type type, uint32_t first) final;
 
 		void begin_debug_event(const char *, const float[4]) final {}
 		void end_debug_event() final {}
 		void insert_debug_marker(const char *, const float[4]) final {}
 
 	private:
-		com_ptr<ID3D10Buffer> _push_constants;
-		std::vector<uint32_t> _push_constants_data;
+		com_ptr<ID3D10Buffer> _push_constants[D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
+		std::vector<uint32_t> _push_constants_data[D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
 	};
 }

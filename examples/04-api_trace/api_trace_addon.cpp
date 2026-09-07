@@ -339,34 +339,26 @@ namespace
 	}
 }
 
-static void on_init_swapchain(swapchain *swapchain)
+static void on_init_swapchain(swapchain *swapchain, bool)
 {
 	const std::unique_lock<std::shared_mutex> lock(s_mutex);
-
-	const device_api api = swapchain->get_device()->get_api();
 
 	for (uint32_t i = 0; i < swapchain->get_back_buffer_count(); ++i)
 	{
 		const resource buffer = swapchain->get_back_buffer(i);
 
 		s_resources.emplace(buffer.handle);
-		if (api == device_api::d3d9 || api == device_api::opengl)
-			s_resource_views.emplace(buffer.handle);
 	}
 }
-static void on_destroy_swapchain(swapchain *swapchain)
+static void on_destroy_swapchain(swapchain *swapchain, bool)
 {
 	const std::unique_lock<std::shared_mutex> lock(s_mutex);
-
-	const device_api api = swapchain->get_device()->get_api();
 
 	for (uint32_t i = 0; i < swapchain->get_back_buffer_count(); ++i)
 	{
 		const resource buffer = swapchain->get_back_buffer(i);
 
 		s_resources.erase(buffer.handle);
-		if (api == device_api::d3d9 || api == device_api::opengl)
-			s_resource_views.erase(buffer.handle);
 	}
 }
 static void on_init_sampler(device *device, const sampler_desc &desc, sampler handle)
@@ -440,32 +432,34 @@ static void on_barrier(command_list *, uint32_t num_resources, const resource *r
 	{
 		std::stringstream s;
 		s << "barrier(" << (void *)resources[i].handle << ", " << to_string(old_states[i]) << ", " << to_string(new_states[i]) << ")";
-		reshade::log_message(reshade::log_level::info, s.str().c_str());
+		reshade::log::message(reshade::log::level::info, s.str().c_str());
 	}
 }
 
-static void on_begin_render_pass(command_list *, uint32_t count, const render_pass_render_target_desc *rts, const render_pass_depth_stencil_desc *ds)
+static bool on_begin_render_pass(command_list *, uint32_t count, const render_pass_render_target_desc *rts, const render_pass_depth_stencil_desc *ds, render_pass_flags flags)
 {
 	if (!s_do_capture)
-		return;
+		return false;
 
 	std::stringstream s;
 	s << "begin_render_pass(" << count << ", { ";
 	for (uint32_t i = 0; i < count; ++i)
 		s << (void *)rts[i].view.handle << ", ";
-	s << " }, " << (ds != nullptr ? (void *)ds->view.handle : 0) << ")";
+	s << " }, " << (ds != nullptr ? (void *)ds->view.handle : 0) << ", " << std::hex << static_cast<uint32_t>(flags) << std::dec << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
+	return false;
 }
-static void on_end_render_pass(command_list *)
+static bool on_end_render_pass(command_list *)
 {
 	if (!s_do_capture)
-		return;
+		return false;
 
 	std::stringstream s;
 	s << "end_render_pass()";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
+	return false;
 }
 static void on_bind_render_targets_and_depth_stencil(command_list *, uint32_t count, const resource_view *rtvs, resource_view dsv)
 {
@@ -487,7 +481,7 @@ static void on_bind_render_targets_and_depth_stencil(command_list *, uint32_t co
 		s << (void *)rtvs[i].handle << ", ";
 	s << " }, " << (void *)dsv.handle << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 
 static void on_bind_pipeline(command_list *, pipeline_stage type, pipeline pipeline)
@@ -505,7 +499,7 @@ static void on_bind_pipeline(command_list *, pipeline_stage type, pipeline pipel
 	std::stringstream s;
 	s << "bind_pipeline(" << to_string(type) << ", " << (void *)pipeline.handle << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 static void on_bind_pipeline_states(command_list *, uint32_t count, const dynamic_state *states, const uint32_t *values)
 {
@@ -516,7 +510,7 @@ static void on_bind_pipeline_states(command_list *, uint32_t count, const dynami
 	{
 		std::stringstream s;
 		s << "bind_pipeline_state(" << to_string(states[i]) << ", " << values[i] << ")";
-		reshade::log_message(reshade::log_level::info, s.str().c_str());
+		reshade::log::message(reshade::log::level::info, s.str().c_str());
 	}
 }
 static void on_bind_viewports(command_list *, uint32_t first, uint32_t count, const viewport *viewports)
@@ -527,7 +521,7 @@ static void on_bind_viewports(command_list *, uint32_t first, uint32_t count, co
 	std::stringstream s;
 	s << "bind_viewports(" << first << ", " << count << ", { ... })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 static void on_bind_scissor_rects(command_list *, uint32_t first, uint32_t count, const rect *rects)
 {
@@ -537,7 +531,7 @@ static void on_bind_scissor_rects(command_list *, uint32_t first, uint32_t count
 	std::stringstream s;
 	s << "bind_scissor_rects(" << first << ", " << count << ", { ... })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 static void on_push_constants(command_list *, shader_stage stages, pipeline_layout layout, uint32_t param_index, uint32_t first, uint32_t count, const void *values)
 {
@@ -550,7 +544,7 @@ static void on_push_constants(command_list *, shader_stage stages, pipeline_layo
 		s << std::hex << static_cast<const uint32_t *>(values)[i] << std::dec << ", ";
 	s << " })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 static void on_push_descriptors(command_list *, shader_stage stages, pipeline_layout layout, uint32_t param_index, const descriptor_table_update &update)
 {
@@ -589,9 +583,9 @@ static void on_push_descriptors(command_list *, shader_stage stages, pipeline_la
 	std::stringstream s;
 	s << "push_descriptors(" << to_string(stages) << ", " << (void *)layout.handle << ", " << param_index << ", { " << to_string(update.type) << ", " << update.binding << ", " << update.count << " })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
-static void on_bind_descriptor_tables(command_list *, shader_stage stages, pipeline_layout layout, uint32_t first, uint32_t count, const descriptor_table *tables)
+static void on_bind_descriptor_tables(command_list *, shader_stage stages, pipeline_layout layout, uint32_t first, uint32_t count, const descriptor_table *tables, uint32_t dynamic_offset_count, const uint32_t *dynamic_offsets)
 {
 	if (!s_do_capture)
 		return;
@@ -600,7 +594,7 @@ static void on_bind_descriptor_tables(command_list *, shader_stage stages, pipel
 	{
 		std::stringstream s;
 		s << "bind_descriptor_table(" << to_string(stages) << ", " << (void *)layout.handle << ", " << (first + i) << ", " << (void *)tables[i].handle << ")";
-		reshade::log_message(reshade::log_level::info, s.str().c_str());
+		reshade::log::message(reshade::log::level::info, s.str().c_str());
 	}
 }
 static void on_bind_index_buffer(command_list *, resource buffer, uint64_t offset, uint32_t index_size)
@@ -618,7 +612,7 @@ static void on_bind_index_buffer(command_list *, resource buffer, uint64_t offse
 	std::stringstream s;
 	s << "bind_index_buffer(" << (void *)buffer.handle << ", " << offset << ", " << index_size << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 }
 static void on_bind_vertex_buffers(command_list *, uint32_t first, uint32_t count, const resource *buffers, const uint64_t *offsets, const uint32_t *strides)
 {
@@ -637,7 +631,7 @@ static void on_bind_vertex_buffers(command_list *, uint32_t first, uint32_t coun
 	{
 		std::stringstream s;
 		s << "bind_vertex_buffer(" << (first + i) << ", " << (void *)buffers[i].handle << ", " << (offsets != nullptr ? offsets[i] : 0) << ", " << (strides != nullptr ? strides[i] : 0) << ")";
-		reshade::log_message(reshade::log_level::info, s.str().c_str());
+		reshade::log::message(reshade::log::level::info, s.str().c_str());
 	}
 }
 
@@ -649,7 +643,7 @@ static bool on_draw(command_list *, uint32_t vertices, uint32_t instances, uint3
 	std::stringstream s;
 	s << "draw(" << vertices << ", " << instances << ", " << first_vertex << ", " << first_instance << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -661,7 +655,7 @@ static bool on_draw_indexed(command_list *, uint32_t indices, uint32_t instances
 	std::stringstream s;
 	s << "draw_indexed(" << indices << ", " << instances << ", " << first_index << ", " << vertex_offset << ", " << first_instance << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -673,7 +667,7 @@ static bool on_dispatch(command_list *, uint32_t group_count_x, uint32_t group_c
 	std::stringstream s;
 	s << "dispatch(" << group_count_x << ", " << group_count_y << ", " << group_count_z << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -685,7 +679,7 @@ static bool on_dispatch_mesh(command_list *, uint32_t group_count_x, uint32_t gr
 	std::stringstream s;
 	s << "dispatch_mesh(" << group_count_x << ", " << group_count_y << ", " << group_count_z << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -697,7 +691,7 @@ static bool on_dispatch_rays(command_list *, resource raygen, uint64_t raygen_of
 	std::stringstream s;
 	s << "dispatch_rays(" << (void *)raygen.handle << ", " << raygen_offset << ", " << raygen_size << ", " << (void *)miss.handle << ", " << miss_offset << ", " << miss_size << ", " << miss_stride << (void *)hit_group.handle << ", " << hit_group_offset << ", " << hit_group_size << ", " << hit_group_stride << ", " << (void *)callable.handle << ", " << callable_offset << ", " << callable_size << ", " << callable_stride << ", " << width << ", " << height << ", " << depth << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -729,7 +723,7 @@ static bool on_draw_or_dispatch_indirect(command_list *, indirect_command type, 
 		break;
 	}
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -750,7 +744,7 @@ static bool on_copy_resource(command_list *, resource src, resource dst)
 	std::stringstream s;
 	s << "copy_resource(" << (void *)src.handle << ", " << (void *)dst.handle << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -770,7 +764,7 @@ static bool on_copy_buffer_region(command_list *, resource src, uint64_t src_off
 	std::stringstream s;
 	s << "copy_buffer_region(" << (void *)src.handle << ", " << src_offset << ", " << (void *)dst.handle << ", " << dst_offset << ", " << size << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -790,7 +784,7 @@ static bool on_copy_buffer_to_texture(command_list *, resource src, uint64_t src
 	std::stringstream s;
 	s << "copy_buffer_to_texture(" << (void *)src.handle << ", " << src_offset << ", " << row_length << ", " << slice_height << ", " << (void *)dst.handle << ", " << dst_subresource << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -810,7 +804,7 @@ static bool on_copy_texture_region(command_list *, resource src, uint32_t src_su
 	std::stringstream s;
 	s << "copy_texture_region(" << (void *)src.handle << ", " << src_subresource << ", " << (void *)dst.handle << ", " << dst_subresource << ", " << (uint32_t)filter << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -830,11 +824,11 @@ static bool on_copy_texture_to_buffer(command_list *, resource src, uint32_t src
 	std::stringstream s;
 	s << "copy_texture_to_buffer(" << (void *)src.handle << ", " << src_subresource << ", " << (void *)dst.handle << ", " << dst_offset << ", " << row_length << ", " << slice_height << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
-static bool on_resolve_texture_region(command_list *, resource src, uint32_t src_subresource, const subresource_box *, resource dst, uint32_t dst_subresource, int32_t dst_x, int32_t dst_y, int32_t dst_z, format format)
+static bool on_resolve_texture_region(command_list *, resource src, uint32_t src_subresource, const subresource_box *, resource dst, uint32_t dst_subresource, uint32_t dst_x, uint32_t dst_y, uint32_t dst_z, format format)
 {
 	if (!s_do_capture)
 		return false;
@@ -850,7 +844,7 @@ static bool on_resolve_texture_region(command_list *, resource src, uint32_t src
 	std::stringstream s;
 	s << "resolve_texture_region(" << (void *)src.handle << ", " << src_subresource << ", { ... }, " << (void *)dst.handle << ", " << dst_subresource << ", " << dst_x << ", " << dst_y << ", " << dst_z << ", " << (uint32_t)format << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -870,7 +864,7 @@ static bool on_clear_depth_stencil_view(command_list *, resource_view dsv, const
 	std::stringstream s;
 	s << "clear_depth_stencil_view(" << (void *)dsv.handle << ", " << (depth != nullptr ? *depth : 0.0f) << ", " << (stencil != nullptr ? *stencil : 0) << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -889,7 +883,7 @@ static bool on_clear_render_target_view(command_list *, resource_view rtv, const
 	std::stringstream s;
 	s << "clear_render_target_view(" << (void *)rtv.handle << ", { " << color[0] << ", " << color[1] << ", " << color[2] << ", " << color[3] << " })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -908,7 +902,7 @@ static bool on_clear_unordered_access_view_uint(command_list *, resource_view ua
 	std::stringstream s;
 	s << "clear_unordered_access_view_uint(" << (void *)uav.handle << ", { " << values[0] << ", " << values[1] << ", " << values[2] << ", " << values[3] << " })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -927,46 +921,7 @@ static bool on_clear_unordered_access_view_float(command_list *, resource_view u
 	std::stringstream s;
 	s << "clear_unordered_access_view_float(" << (void *)uav.handle << ", { " << values[0] << ", " << values[1] << ", " << values[2] << ", " << values[3] << " })";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
-
-	return false;
-}
-
-static bool on_copy_acceleration_structure(command_list *, resource_view source, resource_view dest, acceleration_structure_copy_mode mode)
-{
-	if (!s_do_capture)
-		return false;
-
-#ifndef NDEBUG
-	{	const std::shared_lock<std::shared_mutex> lock(s_mutex);
-
-		assert(s_resource_views.find(source.handle) != s_resource_views.end() && s_resource_views.find(dest.handle) != s_resource_views.end());
-	}
-#endif
-
-	std::stringstream s;
-	s << "copy_acceleration_structure(" << (void *)source.handle << ", " << (void *)dest.handle << ", " << to_string(mode) << ")";
-
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
-
-	return false;
-}
-static bool on_build_acceleration_structure(command_list *, acceleration_structure_type type, acceleration_structure_build_flags flags, uint32_t input_count, const acceleration_structure_build_input *inputs, resource scratch, uint64_t scratch_offset, resource_view source, resource_view dest, acceleration_structure_build_mode mode)
-{
-	if (!s_do_capture)
-		return false;
-
-#ifndef NDEBUG
-	{	const std::shared_lock<std::shared_mutex> lock(s_mutex);
-
-		assert((source.handle == 0 || s_resource_views.find(source.handle) != s_resource_views.end()) && s_resource_views.find(dest.handle) != s_resource_views.end());
-	}
-#endif
-
-	std::stringstream s;
-	s << "build_acceleration_structure(" << to_string(type) << ", " << std::hex << static_cast<uint32_t>(flags) << std::dec << ", " << input_count << ", { ... }, " << (void *)scratch.handle << ", " << scratch_offset << ", " << (void *)source.handle << ", " << (void *)dest.handle << ", " << to_string(mode) << ")";
-
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -986,7 +941,7 @@ static bool on_generate_mipmaps(command_list *, resource_view srv)
 	std::stringstream s;
 	s << "generate_mipmaps(" << (void *)srv.handle << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -999,7 +954,7 @@ static bool on_begin_query(command_list *cmd_list, query_heap heap, query_type t
 	std::stringstream s;
 	s << "begin_query(" << (void *)heap.handle << ", " << to_string(type) << ", " << index << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -1011,7 +966,7 @@ static bool on_end_query(command_list *cmd_list, query_heap heap, query_type typ
 	std::stringstream s;
 	s << "end_query(" << (void *)heap.handle << ", " << to_string(type) << ", " << index << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -1030,7 +985,67 @@ static bool on_copy_query_heap_results(command_list *cmd_list, query_heap heap, 
 	std::stringstream s;
 	s << "copy_query_heap_results(" << (void *)heap.handle << ", " << to_string(type) << ", " << first << ", " << count << (void *)dest.handle << ", " << dest_offset << ", " << stride << ")";
 
-	reshade::log_message(reshade::log_level::info, s.str().c_str());
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
+
+	return false;
+}
+
+static bool on_copy_acceleration_structure(command_list *, resource_view source, resource_view dest, acceleration_structure_copy_mode mode)
+{
+	if (!s_do_capture)
+		return false;
+
+#ifndef NDEBUG
+	{	const std::shared_lock<std::shared_mutex> lock(s_mutex);
+
+		assert(s_resource_views.find(source.handle) != s_resource_views.end() && s_resource_views.find(dest.handle) != s_resource_views.end());
+	}
+#endif
+
+	std::stringstream s;
+	s << "copy_acceleration_structure(" << (void *)source.handle << ", " << (void *)dest.handle << ", " << to_string(mode) << ")";
+
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
+
+	return false;
+}
+static bool on_build_acceleration_structure(command_list *, acceleration_structure_type type, acceleration_structure_build_flags flags, uint32_t input_count, const acceleration_structure_build_input *inputs, resource scratch, uint64_t scratch_offset, resource_view source, resource_view dest, acceleration_structure_build_mode mode)
+{
+	if (!s_do_capture)
+		return false;
+
+#ifndef NDEBUG
+	{	const std::shared_lock<std::shared_mutex> lock(s_mutex);
+
+		assert((source.handle == 0 || s_resource_views.find(source.handle) != s_resource_views.end()) && s_resource_views.find(dest.handle) != s_resource_views.end());
+	}
+#endif
+
+	std::stringstream s;
+	s << "build_acceleration_structure(" << to_string(type) << ", " << std::hex << static_cast<uint32_t>(flags) << std::dec << ", " << input_count << ", { ... }, " << (void *)scratch.handle << ", " << scratch_offset << ", " << (void *)source.handle << ", " << (void *)dest.handle << ", " << to_string(mode) << ")";
+
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
+
+	return false;
+}
+static bool on_query_acceleration_structures(command_list *, uint32_t count, const resource_view *acceleration_structures, query_heap heap, query_type type, uint32_t first)
+{
+	if (!s_do_capture)
+		return false;
+
+#ifndef NDEBUG
+	{
+		const std::shared_lock<std::shared_mutex> lock(s_mutex);
+
+		for (uint32_t i = 0; i < count; ++i)
+			assert(s_resource_views.find(acceleration_structures[i].handle) != s_resource_views.end());
+	}
+#endif
+
+	std::stringstream s;
+	s << "query_acceleration_structures(" << count << ", " << count << ", { ... }, " << (void *)heap.handle << ", " << to_string(type) << ", " << first << ")";
+
+	reshade::log::message(reshade::log::level::info, s.str().c_str());
 
 	return false;
 }
@@ -1039,8 +1054,8 @@ static void on_present(effect_runtime *runtime)
 {
 	if (s_do_capture)
 	{
-		reshade::log_message(reshade::log_level::info, "present()");
-		reshade::log_message(reshade::log_level::info, "--- End Frame ---");
+		reshade::log::message(reshade::log::level::info, "present()");
+		reshade::log::message(reshade::log::level::info, "--- End Frame ---");
 		s_do_capture = false;
 	}
 	else
@@ -1049,7 +1064,7 @@ static void on_present(effect_runtime *runtime)
 		if (runtime->is_key_pressed(VK_F10))
 		{
 			s_do_capture = true;
-			reshade::log_message(reshade::log_level::info, "--- Frame ---");
+			reshade::log::message(reshade::log::level::info, "--- Frame ---");
 		}
 	}
 }
@@ -1105,12 +1120,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		reshade::register_event<reshade::addon_event::clear_render_target_view>(on_clear_render_target_view);
 		reshade::register_event<reshade::addon_event::clear_unordered_access_view_uint>(on_clear_unordered_access_view_uint);
 		reshade::register_event<reshade::addon_event::clear_unordered_access_view_float>(on_clear_unordered_access_view_float);
-		reshade::register_event<reshade::addon_event::copy_acceleration_structure>(on_copy_acceleration_structure);
-		reshade::register_event<reshade::addon_event::build_acceleration_structure>(on_build_acceleration_structure);
 		reshade::register_event<reshade::addon_event::generate_mipmaps>(on_generate_mipmaps);
 		reshade::register_event<reshade::addon_event::begin_query>(on_begin_query);
 		reshade::register_event<reshade::addon_event::end_query>(on_end_query);
 		reshade::register_event<reshade::addon_event::copy_query_heap_results>(on_copy_query_heap_results);
+		reshade::register_event<reshade::addon_event::copy_acceleration_structure>(on_copy_acceleration_structure);
+		reshade::register_event<reshade::addon_event::build_acceleration_structure>(on_build_acceleration_structure);
+		reshade::register_event<reshade::addon_event::query_acceleration_structures>(on_query_acceleration_structures);
 
 		reshade::register_event<reshade::addon_event::reshade_present>(on_present);
 		break;

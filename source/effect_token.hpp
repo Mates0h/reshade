@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
 
 namespace reshadefx
 {
@@ -97,10 +97,10 @@ namespace reshadefx
 		int_literal,
 		uint_literal,
 		float_literal,
-		double_literal,
 		string_literal,
 
 		// keywords
+		pragma,
 		namespace_,
 		struct_,
 		technique,
@@ -163,6 +163,15 @@ namespace reshadefx
 		min16int2,
 		min16int3,
 		min16int4,
+		min16int2x2,
+		min16int2x3,
+		min16int2x4,
+		min16int3x2,
+		min16int3x3,
+		min16int3x4,
+		min16int4x2,
+		min16int4x3,
+		min16int4x4,
 		uint_,
 		uint2,
 		uint3,
@@ -180,6 +189,15 @@ namespace reshadefx
 		min16uint2,
 		min16uint3,
 		min16uint4,
+		min16uint2x2,
+		min16uint2x3,
+		min16uint2x4,
+		min16uint3x2,
+		min16uint3x3,
+		min16uint3x4,
+		min16uint4x2,
+		min16uint4x3,
+		min16uint4x4,
 		float_,
 		float2,
 		float3,
@@ -197,6 +215,15 @@ namespace reshadefx
 		min16float2,
 		min16float3,
 		min16float4,
+		min16float2x2,
+		min16float2x3,
+		min16float2x4,
+		min16float3x2,
+		min16float3x3,
+		min16float3x4,
+		min16float4x2,
+		min16float4x3,
+		min16float4x4,
 		vector,
 		matrix,
 		string_,
@@ -242,11 +269,10 @@ namespace reshadefx
 			int literal_as_int;
 			unsigned int literal_as_uint;
 			float literal_as_float;
-			double literal_as_double;
 		};
 		std::string literal_as_string;
 
-		inline operator tokenid() const { return id; }
+		operator tokenid() const { return id; }
 
 		static std::string id_to_name(tokenid id);
 	};

@@ -27,10 +27,9 @@ namespace reshade::vulkan
 
 		api::color_space get_color_space() const final;
 
-	private:
-		device_impl *const _device_impl;
-
 	protected:
+		device_impl *const _device;
+
 		VkSwapchainCreateInfoKHR _create_info = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 		HWND _hwnd = nullptr;
 		uint32_t _swap_index = 0;
@@ -41,12 +40,15 @@ namespace reshade::vulkan
 	{
 		using Handle = VkSwapchainKHR;
 
-		object_data(device_impl *device, VkSwapchainKHR swapchain, const VkSwapchainCreateInfoKHR &create_info, HWND hwnd) : swapchain_impl(device, swapchain, create_info, hwnd) {}
+		object_data(device_impl *device, VkSwapchainKHR swapchain, const VkSwapchainCreateInfoKHR &create_info, HWND hwnd) :
+			swapchain_impl(device, swapchain, create_info, hwnd) {}
 
 		using swapchain_impl::_create_info;
 		using swapchain_impl::_hwnd;
 		using swapchain_impl::_swap_index;
 
+#if VK_EXT_full_screen_exclusive
 		HMONITOR hmonitor = nullptr;
+#endif
 	};
 }

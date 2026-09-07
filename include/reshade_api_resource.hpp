@@ -26,10 +26,10 @@
 
 #include "reshade_api_format.hpp"
 
-namespace reshade { namespace api
+namespace reshade::api
 {
 	/// <summary>
-	/// The available comparison types.
+	/// Comparison operations.
 	/// </summary>
 	enum class compare_op : uint32_t
 	{
@@ -40,11 +40,11 @@ namespace reshade { namespace api
 		greater = 4,
 		not_equal = 5,
 		greater_equal = 6,
-		always = 7
+		always = 7,
 	};
 
 	/// <summary>
-	/// The available filtering modes used for texture sampling operations.
+	/// Texture filtering modes available for texture sampling operations.
 	/// </summary>
 	enum class filter_mode : uint32_t
 	{
@@ -58,20 +58,20 @@ namespace reshade { namespace api
 		min_mag_mip_linear = 0x15,
 		min_mag_anisotropic_mip_point = 0x54,
 		anisotropic = 0x55,
-		compare_min_mag_mip_point = 0x80,
-		compare_min_mag_point_mip_linear = 0x81,
-		compare_min_point_mag_linear_mip_point = 0x84,
-		compare_min_point_mag_mip_linear = 0x85,
-		compare_min_linear_mag_mip_point = 0x90,
-		compare_min_linear_mag_point_mip_linear = 0x91,
-		compare_min_mag_linear_mip_point = 0x94,
-		compare_min_mag_mip_linear = 0x95,
-		compare_min_mag_anisotropic_mip_point = 0xd4,
-		compare_anisotropic = 0xd5
+		compare_min_mag_mip_point = min_mag_mip_point | 0x80,
+		compare_min_mag_point_mip_linear = min_mag_point_mip_linear | 0x80,
+		compare_min_point_mag_linear_mip_point = min_point_mag_linear_mip_point | 0x80,
+		compare_min_point_mag_mip_linear = min_point_mag_mip_linear | 0x80,
+		compare_min_linear_mag_mip_point = min_linear_mag_mip_point | 0x80,
+		compare_min_linear_mag_point_mip_linear = min_linear_mag_point_mip_linear | 0x80,
+		compare_min_mag_linear_mip_point = min_mag_linear_mip_point | 0x80,
+		compare_min_mag_mip_linear = min_mag_mip_linear | 0x80,
+		compare_min_mag_anisotropic_mip_point = min_mag_anisotropic_mip_point | 0x80,
+		compare_anisotropic = anisotropic | 0x80,
 	};
 
 	/// <summary>
-	/// Specifies behavior of sampling with texture coordinates outside a texture resource.
+	/// Sampling behavior at texture coordinates outside the bounds of a texture resource.
 	/// </summary>
 	enum class texture_address_mode : uint32_t
 	{
@@ -79,7 +79,7 @@ namespace reshade { namespace api
 		mirror = 2,
 		clamp = 3,
 		border = 4,
-		mirror_once = 5
+		mirror_once = 5,
 	};
 
 	/// <summary>
@@ -131,38 +131,73 @@ namespace reshade { namespace api
 
 	/// <summary>
 	/// An opaque handle to a sampler state object.
-	/// <para>Depending on the render API this can be a pointer to a 'ID3D10SamplerState', 'ID3D11SamplerState' or a 'D3D12_CPU_DESCRIPTOR_HANDLE' (to a sampler descriptor) or 'VkSampler' handle.</para>
+	/// <para>
+	/// Depending on the graphics API this can be:
+	/// <list type="bullet">
+	/// <item>Direct3D 9: An opaque value.</item>
+	/// <item>Direct3D 10: A pointer to a 'ID3D10SamplerState' object.</item>
+	/// <item>Direct3D 11: A pointer to a 'ID3D11SamplerState' object.</item>
+	/// <item>Direct3D 12: A 'D3D12_CPU_DESCRIPTOR_HANDLE' (to a sampler descriptor).</item>
+	/// <item>OpenGL: An OpenGL sampler object name.</item>
+	/// <item>Vulkan: A 'VkSampler' handle.</item>
+	/// </list>
+	/// </para>
 	/// </summary>
 	RESHADE_DEFINE_HANDLE(sampler);
 
 	/// <summary>
-	/// The available memory mapping access types.
+	/// Memory mapping access types.
 	/// </summary>
 	enum class map_access
 	{
 		read_only = 1,
 		write_only,
 		read_write,
-		write_discard
+		write_discard,
 	};
 
 	/// <summary>
-	/// The available memory heap types, which give a hint as to where to place the memory allocation for a resource.
+	/// Memory heap types, which give a hint as to where to place the allocation for a resource.
 	/// </summary>
 	enum class memory_heap : uint32_t
 	{
-		unknown, // Usually indicates a resource that is reserved, but not yet bound to any memory.
-		gpu_only,
-		// Upload heap
-		cpu_to_gpu,
-		// Readback heap
-		gpu_to_cpu,
-		cpu_only,
-		custom
+		/// <summary>
+		/// Usually indicates a resource that is reserved, but not yet bound to any memory.
+		/// </summary>
+		unknown,
+		/// <summary>
+		/// The default heap, which the GPU can read and write, but the CPU does not have access.
+		/// </summary>
+		default_,
+		/// <summary>
+		/// This heap has CPU access optimized for uploading to the GPU.
+		/// </summary>
+		upload,
+		/// <summary>
+		/// This heap has CPU access optimized for reading data back from the GPU.
+		/// </summary>
+		readback,
+		/// <summary>
+		/// This heap has custom properties not covered by the other types.
+		/// </summary>
+		custom = 5,
+		/// <summary>
+		/// This heap is only accessible by the CPU.
+		/// </summary>
+		scratch = 4,
+		/// <summary>
+		/// CPU visible GPU memory, when available (Resizable BAR).
+		/// </summary>
+		gpu_upload = 6,
+
+		gpu_only [[deprecated("use 'memory_heap::default_' instead")]] = default_,
+		cpu_to_gpu [[deprecated("use 'memory_heap::upload' instead")]] = upload,
+		gpu_to_cpu [[deprecated("use 'memory_heap::readback' instead")]] = readback,
+		cpu_only [[deprecated("use 'memory_heap::scratch' instead")]] = scratch,
 	};
 
 	/// <summary>
-	/// The available resource types. The type of a resource is specified during creation and is immutable.
+	/// Type of a resource. This is specified during creation and is immutable.
 	/// Various operations may have special requirements on the type of resources they operate on (e.g. copies can only happen between resources of the same type, ...).
 	/// </summary>
 	enum class resource_type : uint32_t
@@ -172,27 +207,48 @@ namespace reshade { namespace api
 		texture_1d,
 		texture_2d,
 		texture_3d,
-		surface // Special type for resources that are implicitly both resource and render target view.
+		surface, // Special type for resources that are implicitly both resource and render target view.
 	};
 
 	/// <summary>
-	/// A list of flags that describe additional parameters of a resource.
+	/// Flags that specify additional parameters of a resource.
 	/// </summary>
 	enum class resource_flags : uint32_t
 	{
 		none = 0,
-		dynamic = (1 << 3),
-		cube_compatible = (1 << 2),
-		generate_mipmaps = (1 << 0),
-		shared = (1 << 1),
-		shared_nt_handle = (1 << 11),
-		structured = (1 << 6),
-		sparse_binding = (1 << 18)
+		/// <summary>
+		/// Dynamic resources can be frequently updated during a frame, with previous contents automatically being shadowed so to no affect already executing operations on the GPU.
+		/// Required for <see cref="map_access::write_discard"/>. This flag is not supported in D3D12 or Vulkan.
+		/// </summary>
+		dynamic = 0x8,
+		/// <summary>
+		/// Immutable resources can never be written to again after creationn, either by the CPU or the GPU.
+		/// This flag is only supported in D3D10 and D3D11.
+		/// </summary>
+		immutable = 0x10,
+		/// <summary>
+		/// Required to create <see cref="resource_view_type::texture_cube"/> or <see cref="resource_view_type::texture_cube_array"/> views of the resource.
+		/// </summary>
+		cube_compatible = 0x4,
+		/// <summary>
+		/// Required to use the resource with <see cref="command_list::generate_mipmaps"/>.
+		/// </summary>
+		generate_mipmaps = 0x1,
+		/// <summary>
+		/// Shared resources can be imported/exported from/to different graphics APIs and/or processes.
+		/// Required to use the "shared_handle" parameter of <see cref="device::create_resource"/>.
+		/// </summary>
+		shared = 0x2,
+		shared_nt_handle = 0x800,
+		/// <summary>
+		/// Resource is backed by sparse memory.
+		/// </summary>
+		sparse_binding = 0x40000,
 	};
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(resource_flags);
 
 	/// <summary>
-	/// A list of flags that specify how a resource is to be used.
+	/// Flags that specify how a resource is used.
 	/// This needs to be specified during creation and is also used to transition between different resource states within a command list.
 	/// </summary>
 	enum class resource_usage : uint32_t
@@ -234,7 +290,7 @@ namespace reshade { namespace api
 	/// </summary>
 	struct [[nodiscard]] resource_desc
 	{
-		constexpr resource_desc() : texture() {}
+		constexpr resource_desc() : texture({ 0, 0, 0, 0, format::unknown, 0 }) {}
 		constexpr resource_desc(uint64_t size, memory_heap heap, resource_usage usage, resource_flags flags = resource_flags::none) :
 			type(resource_type::buffer), buffer({ size }), heap(heap), usage(usage), flags(flags) {}
 		constexpr resource_desc(uint32_t width, uint32_t height, uint16_t layers, uint16_t levels, format format, uint16_t samples, memory_heap heap, resource_usage usage, resource_flags flags = resource_flags::none) :
@@ -258,10 +314,14 @@ namespace reshade { namespace api
 				/// Size of the buffer (in bytes).
 				/// </summary>
 				uint64_t size = 0;
-				/// <summary>
-				/// Structure stride for structured buffers (in bytes), otherwise zero.
-				/// </summary>
-				uint32_t stride = 0;
+
+				struct
+				{
+					/// <summary>
+					/// Structure stride for structured buffers (in bytes), otherwise zero.
+					/// </summary>
+					uint32_t stride = 0;
+				} structured;
 			} buffer;
 
 			/// <summary>
@@ -302,12 +362,12 @@ namespace reshade { namespace api
 		/// </summary>
 		memory_heap heap = memory_heap::unknown;
 		/// <summary>
-		/// Flags that specify how this resource may be used.
+		/// Flags that specify how this resource is used.
 		/// This should contain all resource states the resource will ever be transitioned to (including the initial state specified for resource creation).
 		/// </summary>
 		resource_usage usage = resource_usage::undefined;
 		/// <summary>
-		/// Flags that describe additional parameters.
+		/// Flags that specify additional parameters.
 		/// </summary>
 		resource_flags flags = resource_flags::none;
 	};
@@ -315,12 +375,22 @@ namespace reshade { namespace api
 	/// <summary>
 	/// An opaque handle to a resource object (buffer, texture, ...).
 	/// <para>Resources created by the application are only guaranteed to be valid during event callbacks.</para>
-	/// <para>Depending on the render API this can be a pointer to a 'IDirect3DResource9', 'ID3D10Resource', 'ID3D11Resource' or 'ID3D12Resource' object or a 'VkImage' handle.</para>
+	/// <para>
+	/// Depending on the graphics API this can be:
+	/// <list type="bullet">
+	/// <item>Direct3D 9: A pointer to a 'IDirect3DResource9' object.</item>
+	/// <item>Direct3D 10: A pointer to a 'ID3D10Resource' object.</item>
+	/// <item>Direct3D 11: A pointer to a 'ID3D11Resource' object.</item>
+	/// <item>Direct3D 12: A pointer to a 'ID3D12Resource' object.</item>
+	/// <item>OpenGL: The upper 24-bit contain the OpenGL object type (like GL_BUFFER, GL_TEXTURE_2D, GL_RENDERBUFFER, ...), the lower 32-bit contain the OpenGL object name. So the object type can be extracted with <c>(handle >> 40)</c>, the object with <c>(handle & 0xFFFFFFFF)</c>.</item>
+	/// <item>Vulkan: A 'VkImage' handle.</item>
+	/// </list>
+	/// </para>
 	/// </summary>
 	RESHADE_DEFINE_HANDLE(resource);
 
 	/// <summary>
-	/// The available resource view types. These identify how a resource view interprets the data of its resource.
+	/// Type of a resource view. This identifies how a resource view interprets the data of its resource.
 	/// </summary>
 	enum class resource_view_type : uint32_t
 	{
@@ -335,7 +405,7 @@ namespace reshade { namespace api
 		texture_3d,
 		texture_cube,
 		texture_cube_array,
-		acceleration_structure
+		acceleration_structure,
 	};
 
 	/// <summary>
@@ -343,7 +413,7 @@ namespace reshade { namespace api
 	/// </summary>
 	struct [[nodiscard]] resource_view_desc
 	{
-		constexpr resource_view_desc() : texture() {}
+		constexpr resource_view_desc() : texture({ 0, 0, 0, 0 }) {}
 		constexpr resource_view_desc(format format, uint64_t offset, uint64_t size) :
 			type(resource_view_type::buffer), format(format), buffer({ offset, size }) {}
 		constexpr resource_view_desc(format format, uint32_t first_level, uint32_t levels, uint32_t first_layer, uint32_t layers) :
@@ -360,6 +430,8 @@ namespace reshade { namespace api
 		resource_view_type type = resource_view_type::unknown;
 		/// <summary>
 		/// Format the view should reinterpret the resource data to (can be different than the format of the resource as long as they are compatible).
+		/// Set to <see cref="format::unknown"/> to indicate that a buffer view should be a structured buffer.
+		/// Set to <see cref="format::r32_typeless"/> to indicate that a buffer view should be raw / a byte address buffer.
 		/// </summary>
 		format format = format::unknown;
 
@@ -374,11 +446,30 @@ namespace reshade { namespace api
 				/// Offset from the start of the buffer resource (in bytes).
 				/// </summary>
 				uint64_t offset = 0;
-				/// <summary>
-				/// Number of elements this view covers in the buffer resource (in bytes).
-				/// Set to -1 (UINT64_MAX) to indicate that the entire buffer resource should be used.
-				/// </summary>
-				uint64_t size = UINT64_MAX;
+
+				union
+				{
+					/// <summary>
+					/// Size of the view in the buffer resource (in bytes).
+					/// Set to -1 (UINT64_MAX) to indicate that the entire buffer resource should be used.
+					/// </summary>
+					uint64_t size = UINT64_MAX;
+
+					/// <summary>
+					/// Used instead of size when format is <see cref="format::unknown"/>.
+					/// </summary>
+					struct
+					{
+						/// <summary>
+						/// Number of elements this view covers for structured buffers.
+						/// </summary>
+						uint32_t count;
+						/// <summary>
+						/// Structure stride for structured buffers (in bytes).
+						/// </summary>
+						uint32_t stride;
+					} structured;
+				};
 			} buffer;
 
 			/// <summary>
@@ -394,7 +485,7 @@ namespace reshade { namespace api
 				/// Maximum number of mipmap levels for the view of the texture.
 				/// Set to -1 (UINT32_MAX) to indicate that all mipmap levels down to the least detailed should be used.
 				/// </summary>
-				uint32_t level_count = UINT32_MAX;
+				uint32_t levels = UINT32_MAX;
 				/// <summary>
 				/// Index of the first array layer of the texture array to use. This value is ignored if the texture is not layered.
 				/// </summary>
@@ -403,7 +494,7 @@ namespace reshade { namespace api
 				/// Maximum number of array layers for the view of the texture array. This value is ignored if the texture is not layered.
 				/// Set to -1 (UINT32_MAX) to indicate that all array layers should be used.
 				/// </summary>
-				uint32_t layer_count = UINT32_MAX;
+				uint32_t layers = UINT32_MAX;
 			} texture;
 		};
 	};
@@ -411,7 +502,17 @@ namespace reshade { namespace api
 	/// <summary>
 	/// An opaque handle to a resource view object (depth-stencil, render target, shader resource view, ...).
 	/// <para>Resource views created by the application are only guaranteed to be valid during event callbacks.</para>
-	/// <para>Depending on the render API this can be a pointer to a 'IDirect3DResource9', 'ID3D10View' or 'ID3D11View' object, or a 'D3D12_CPU_DESCRIPTOR_HANDLE' (to a view descriptor), 'D3D12_GPU_VIRTUAL_ADDRESS' (to an acceleration structrue), 'VkImageView' or 'VkAccelerationStructureKHR' handle.</para>
+	/// <para>
+	/// Depending on the graphics API this can be:
+	/// <list type="bullet">
+	/// <item>Direct3D 9: A pointer to a 'IDirect3DResource9' object.</item>
+	/// <item>Direct3D 10: A pointer to a 'ID3D10View' object.</item>
+	/// <item>Direct3D 11: A pointer to a 'ID3D11View' object.</item>
+	/// <item>Direct3D 12: A 'D3D12_CPU_DESCRIPTOR_HANDLE' (to a view descriptor) or 'D3D12_GPU_VIRTUAL_ADDRESS' (to an acceleration structrue).</item>
+	/// <item>OpenGL: The upper 24-bit contain the OpenGL object type (like GL_TEXTURE_BUFFER, GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP_POSITIVE_X, ...), the lower 32-bit contain the OpenGL object ID. So the object type can be extracted with <c>(handle >> 40)</c>, the object with <c>(handle & 0xFFFFFFFF)</c>.</item>
+	/// <item>Vulkan: A 'VkImageView' or 'VkAccelerationStructureKHR' handle.</item>
+	/// </list>
+	/// </para>
 	/// </summary>
 	RESHADE_DEFINE_HANDLE(resource_view);
 
@@ -420,12 +521,12 @@ namespace reshade { namespace api
 	/// </summary>
 	struct subresource_box
 	{
-		int32_t left = 0;
-		int32_t top = 0;
-		int32_t front = 0;
-		int32_t right = 0;
-		int32_t bottom = 0;
-		int32_t back = 0;
+		uint32_t left = 0;
+		uint32_t top = 0;
+		uint32_t front = 0;
+		uint32_t right = 0;
+		uint32_t bottom = 0;
+		uint32_t back = 0;
 
 		constexpr uint32_t width() const { return right - left; }
 		constexpr uint32_t height() const { return bottom - top; }
@@ -454,6 +555,17 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
+	/// Flags that specify additional parameters of a render pass.
+	/// </summary>
+	enum class render_pass_flags : uint32_t
+	{
+		none = 0,
+		resume = 0x4,
+		suspend = 0x2,
+	};
+	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(render_pass_flags);
+
+	/// <summary>
 	/// Specifies how the contents of a render target or depth-stencil view are treated at the start of a render pass.
 	/// </summary>
 	enum class render_pass_load_op : uint32_t
@@ -461,7 +573,7 @@ namespace reshade { namespace api
 		load,
 		clear,
 		discard,
-		no_access
+		no_access,
 	};
 
 	/// <summary>
@@ -471,7 +583,7 @@ namespace reshade { namespace api
 	{
 		store,
 		discard,
-		no_access
+		no_access,
 	};
 
 	/// <summary>
@@ -533,72 +645,72 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// The available acceleration structure types.
+	/// Type of an acceleration structure.
 	/// </summary>
 	enum class acceleration_structure_type
 	{
+		generic = 2,
 		top_level = 0,
 		bottom_level = 1,
-		generic = 2
 	};
 
 	/// <summary>
-	/// The available acceleration structure copy modes.
+	/// Type of an acceleration structure copy operation.
 	/// </summary>
 	enum class acceleration_structure_copy_mode
 	{
 		clone = 0,
 		compact = 1,
 		serialize = 2,
-		deserialize = 3
+		deserialize = 3,
 	};
 
 	/// <summary>
-	/// The available acceleration structure build modes.
+	/// Type of an acceleration structure build operation.
 	/// </summary>
 	enum class acceleration_structure_build_mode
 	{
 		build = 0,
-		update = 1
+		update = 1,
 	};
 
 	/// <summary>
-	/// The available acceleration structure build flags.
+	/// Flags that specify additional parameters to an acceleration structure build operation.
 	/// </summary>
 	enum class acceleration_structure_build_flags : uint32_t
 	{
 		none = 0,
-		allow_update = (1 << 0),
-		allow_compaction = (1 << 1),
-		prefer_fast_trace = (1 << 2),
-		prefer_fast_build = (1 << 3),
-		minimize_memory_usage = (1 << 4)
+		allow_update = 0x1,
+		allow_compaction = 0x2,
+		prefer_fast_trace = 0x4,
+		prefer_fast_build = 0x8,
+		minimize_memory_usage = 0x10,
 	};
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(acceleration_structure_build_flags);
 
 	/// <summary>
-	/// The available acceleration structure build input types.
+	/// Type of an acceleration structure structure build input.
 	/// </summary>
 	enum class acceleration_structure_build_input_type : uint32_t
 	{
 		triangles = 0,
 		aabbs = 1,
-		instances = 2
+		instances = 2,
 	};
 
 	/// <summary>
-	/// The available acceleration structure build input flags.
+	/// Flags that specify additional parameters of an acceleration structure build input.
 	/// </summary>
 	enum class acceleration_structure_build_input_flags : uint32_t
 	{
 		none = 0,
-		opaque = (1 << 0),
-		no_duplicate_any_hit_invocation = (1 << 1)
+		opaque = 0x1,
+		no_duplicate_any_hit_invocation = 0x2,
 	};
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(acceleration_structure_build_input_flags);
 
 	/// <summary>
-	/// Describes an instance in a top-level acceleration structure.
+	/// Describes a single instance in a top-level acceleration structure.
 	/// The data in <see cref="acceleration_structure_build_input::instances::buffer"/> should be an array of this structure.
 	/// </summary>
 	struct acceleration_structure_instance
@@ -612,17 +724,17 @@ namespace reshade { namespace api
 	};
 
 	/// <summary>
-	/// Describes a build input for an acceleration structure build.
+	/// Describes a build input for an acceleration structure build operation.
 	/// </summary>
 	struct acceleration_structure_build_input
 	{
 		constexpr acceleration_structure_build_input() : triangles() {}
-		constexpr acceleration_structure_build_input(api::resource vertex_buffer, uint64_t vertex_offset, uint32_t vertex_count, uint64_t vertex_stride, api::format vertex_format, api::resource index_buffer, uint64_t index_offset, uint32_t index_count, api::format index_format, uint64_t transform_address = 0) : type(acceleration_structure_build_input_type::triangles), triangles({ vertex_buffer, vertex_offset, vertex_count, vertex_stride, vertex_format, index_buffer, index_offset, index_count, index_format, transform_address }) {}
-		constexpr acceleration_structure_build_input(api::resource aabb_buffer, uint64_t aabb_offset, uint32_t aabb_count, uint64_t aabb_stride) : type(acceleration_structure_build_input_type::aabbs), aabbs({ aabb_buffer, aabb_offset, aabb_count, aabb_stride }) {}
-		constexpr acceleration_structure_build_input(api::resource instance_buffer, uint64_t instance_offset, uint32_t instance_count, bool array_of_pointers = false) : type(acceleration_structure_build_input_type::instances), instances({ instance_buffer, instance_offset, instance_count, array_of_pointers }) {}
+		constexpr acceleration_structure_build_input(resource vertex_buffer, uint64_t vertex_offset, uint32_t vertex_count, uint64_t vertex_stride, format vertex_format, resource index_buffer, uint64_t index_offset, uint32_t index_count, format index_format, uint64_t transform_address = 0) : type(acceleration_structure_build_input_type::triangles), triangles({ vertex_buffer, vertex_offset, vertex_count, vertex_stride, vertex_format, index_buffer, index_offset, index_count, index_format, transform_address }) {}
+		constexpr acceleration_structure_build_input(resource aabb_buffer, uint64_t aabb_offset, uint32_t aabb_count, uint64_t aabb_stride) : type(acceleration_structure_build_input_type::aabbs), aabbs({ aabb_buffer, aabb_offset, aabb_count, aabb_stride }) {}
+		constexpr acceleration_structure_build_input(resource instance_buffer, uint64_t instance_offset, uint32_t instance_count, bool array_of_pointers = false) : type(acceleration_structure_build_input_type::instances), instances({ instance_buffer, instance_offset, instance_count, array_of_pointers }) {}
 
 		/// <summary>
-		/// Type of the build input.
+		/// Type of the acceleration structure build input.
 		/// </summary>
 		acceleration_structure_build_input_type type = acceleration_structure_build_input_type::triangles;
 
@@ -633,16 +745,18 @@ namespace reshade { namespace api
 			/// </summary>
 			struct
 			{
-				api::resource vertex_buffer = {};
+				resource vertex_buffer = {};
 				uint64_t vertex_offset = 0;
 				uint32_t vertex_count = 0;
 				uint64_t vertex_stride = 0;
-				api::format vertex_format = api::format::unknown;
-				api::resource index_buffer = {};
+				format vertex_format = api::format::unknown;
+
+				resource index_buffer = {};
 				uint64_t index_offset = 0;
 				uint32_t index_count = 0;
-				api::format index_format = api::format::unknown;
-				api::resource transform_buffer = {};
+				format index_format = api::format::unknown;
+
+				resource transform_buffer = {};
 				uint64_t transform_offset = 0;
 			} triangles;
 
@@ -651,7 +765,7 @@ namespace reshade { namespace api
 			/// </summary>
 			struct
 			{
-				api::resource buffer = {};
+				resource buffer = {};
 				uint64_t offset = 0;
 				uint32_t count = 0;
 				uint64_t stride = 0;
@@ -662,7 +776,7 @@ namespace reshade { namespace api
 			/// </summary>
 			struct
 			{
-				api::resource buffer = {};
+				resource buffer = {};
 				uint64_t offset = 0;
 				uint32_t count = 0;
 				bool array_of_pointers = false;
@@ -670,8 +784,8 @@ namespace reshade { namespace api
 		};
 
 		/// <summary>
-		/// Flags that describe additional parameters.
+		/// Flags that specify additional parameters.
 		/// </summary>
 		acceleration_structure_build_input_flags flags = acceleration_structure_build_input_flags::none;
 	};
-} }
+}
