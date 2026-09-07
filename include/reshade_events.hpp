@@ -409,6 +409,12 @@ namespace reshade
 		destroy_resource,
 
 		/// <summary>
+		/// Called on resource creation, allowing to override the resource handle returned.
+		/// <para>Callback function signature: <c>void (api::device *device, const api::resource_desc &amp;desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource &amp;out_resource)</c></para>
+		/// </summary>
+		override_resource = 101,
+
+		/// <summary>
 		/// Called after successful resource view creation from:
 		/// <list type="bullet">
 		/// <item><description>IDirect3DDevice9::CreateTexture</description></item>
@@ -445,7 +451,7 @@ namespace reshade
 		/// <remarks>
 		/// May be called multiple times with the same resource view handle (whenever the resource view is updated).
 		/// </remarks>
-		init_resource_view,
+		init_resource_view = 17,
 
 		/// <summary>
 		/// Called on resource view creation, before:
@@ -504,6 +510,12 @@ namespace reshade
 		destroy_resource_view,
 
 		/// <summary>
+		/// Called on resource view creation, allowing to override the resource view handle returned.
+		/// <para>Callback function signature: <c>void (api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &amp;desc, api::resource_view &amp;out_view)</c></para>
+		/// </summary>
+		override_resource_view = 102,
+
+		/// <summary>
 		/// Called after:
 		/// <list type="bullet">
 		/// <item><description>IDirect3DVertexBuffer9::Lock</description></item>
@@ -518,7 +530,7 @@ namespace reshade
 		/// </list>
 		/// <para>Callback function signature: <c>void (api::device *device, api::resource resource, uint64_t offset, uint64_t size, api::map_access access, void **data)</c></para>
 		/// </summary>
-		map_buffer_region,
+		map_buffer_region = 20,
 
 		/// <summary>
 		/// Called before:
@@ -762,6 +774,12 @@ namespace reshade
 		destroy_pipeline,
 
 		/// <summary>
+		/// Called on pipeline creation, allowing to override the pipeline handle returned.
+		/// <para>Callback function signature: <c>void (api::device *device, api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects, api::pipeline &amp;out_pipeline)</c></para>
+		/// </summary>
+		override_pipeline = 103,
+
+		/// <summary>
 		/// Called after successful pipeline layout creation from:
 		/// <list type="bullet">
 		/// <item><description>ID3D12Device::CreateRootSignature</description></item>
@@ -772,7 +790,7 @@ namespace reshade
 		/// <remarks>
 		/// In case of D3D9, D3D10, D3D11 and OpenGL this is called during device initialization as well and behaves as if an implicit global pipeline layout was created.
 		/// </remarks>
-		init_pipeline_layout,
+		init_pipeline_layout = 29,
 
 		/// <summary>
 		/// Called on pipeline layout creation, before:
@@ -1815,7 +1833,7 @@ namespace reshade
 		reshade_overlay_technique,
 
 #if RESHADE_ADDON
-		max = 101 // Last value used internally by ReShade to determine number of events in this enum
+		max = 104 // Last value used internally by ReShade to determine number of events in this enum
 #endif
 	};
 
@@ -1853,10 +1871,12 @@ namespace reshade
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::init_resource, void, api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource resource);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::create_resource, bool, api::device *device, api::resource_desc &desc, api::subresource_data *initial_data, api::resource_usage initial_state);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::destroy_resource, void, api::device *device, api::resource resource);
+	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::override_resource, bool, api::device *device, const api::resource_desc &desc, const api::subresource_data *initial_data, api::resource_usage initial_state, api::resource &out_resource);
 
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::init_resource_view, void, api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view view);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::create_resource_view, bool, api::device *device, api::resource resource, api::resource_usage usage_type, api::resource_view_desc &desc);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::destroy_resource_view, void, api::device *device, api::resource_view view);
+	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::override_resource_view, bool, api::device *device, api::resource resource, api::resource_usage usage_type, const api::resource_view_desc &desc, api::resource_view &out_view);
 
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::map_buffer_region, void, api::device *device, api::resource resource, uint64_t offset, uint64_t size, api::map_access access, void **data);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::unmap_buffer_region, void, api::device *device, api::resource resource);
@@ -1869,6 +1889,7 @@ namespace reshade
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::init_pipeline, void, api::device *device, api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects, api::pipeline pipeline);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::create_pipeline, bool, api::device *device, api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::destroy_pipeline, void, api::device *device, api::pipeline pipeline);
+	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::override_pipeline, bool, api::device *device, api::pipeline_layout layout, uint32_t subobject_count, const api::pipeline_subobject *subobjects, api::pipeline &out_pipeline);
 
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::init_pipeline_layout, void, api::device *device, uint32_t param_count, const api::pipeline_layout_param *params, api::pipeline_layout layout);
 	RESHADE_DEFINE_ADDON_EVENT_TRAITS(addon_event::create_pipeline_layout, bool, api::device *device, uint32_t &param_count, api::pipeline_layout_param *&params);

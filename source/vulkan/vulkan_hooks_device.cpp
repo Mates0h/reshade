@@ -1060,6 +1060,14 @@ VkResult VKAPI_CALL vkCreateBuffer(VkDevice device, const VkBufferCreateInfo *pC
 		reshade::vulkan::convert_resource_desc(desc, create_info);
 		pCreateInfo = &create_info;
 	}
+
+	if (reshade::api::resource override_resource = {};
+		reshade::invoke_addon_event<reshade::addon_event::override_resource>(device_impl, desc, nullptr, reshade::api::resource_usage::undefined, override_resource) &&
+		override_resource != 0)
+	{
+		*pBuffer = (VkBuffer)override_resource.handle;
+		return VK_SUCCESS;
+	}
 #endif
 
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pBuffer);
@@ -1111,6 +1119,14 @@ VkResult VKAPI_CALL vkCreateBufferView(VkDevice device, const VkBufferViewCreate
 	{
 		reshade::vulkan::convert_resource_view_desc(desc, create_info);
 		pCreateInfo = &create_info;
+	}
+
+	if (reshade::api::resource_view override_resource_view = {};
+		reshade::invoke_addon_event<reshade::addon_event::override_resource_view>(device_impl, reshade::api::resource { (uint64_t)create_info.buffer }, reshade::api::resource_usage::undefined, desc, override_resource_view) &&
+		override_resource_view != 0)
+	{
+		*pView = (VkBufferView)override_resource_view.handle;
+		return VK_SUCCESS;
 	}
 #endif
 
@@ -1179,6 +1195,14 @@ VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreateInfo *pCre
 			}
 		}
 	}
+
+	if (reshade::api::resource override_resource = {};
+		reshade::invoke_addon_event<reshade::addon_event::override_resource>(device_impl, desc, nullptr, pCreateInfo->initialLayout == VK_IMAGE_LAYOUT_PREINITIALIZED ? reshade::api::resource_usage::cpu_access : reshade::api::resource_usage::undefined, override_resource) &&
+		override_resource != 0)
+	{
+		*pImage = (VkImage)override_resource.handle;
+		return VK_SUCCESS;
+	}
 #endif
 
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pImage);
@@ -1232,6 +1256,14 @@ VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageViewCreateIn
 	{
 		reshade::vulkan::convert_resource_view_desc(desc, create_info);
 		pCreateInfo = &create_info;
+	}
+
+	if (reshade::api::resource_view override_resource_view = {};
+		reshade::invoke_addon_event<reshade::addon_event::override_resource_view>(device_impl, reshade::api::resource { (uint64_t)create_info.image }, reshade::api::resource_usage::undefined, desc, override_resource_view) &&
+		override_resource_view != 0)
+	{
+		*pView = (VkImageView)override_resource_view.handle;
+		return VK_SUCCESS;
 	}
 #endif
 
@@ -1558,6 +1590,12 @@ VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache p
 			result = device_impl->create_pipeline(
 				reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), reinterpret_cast<reshade::api::pipeline *>(&pPipelines[i]), &create_info) ? VK_SUCCESS : VK_ERROR_OUT_OF_HOST_MEMORY;
 		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
+		}
 		else
 		{
 			result = trampoline(device, pipelineCache, 1, &create_info, pAllocator, &pPipelines[i]);
@@ -1641,6 +1679,12 @@ VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, VkPipelineCache pi
 		{
 			result = device_impl->create_pipeline(
 				reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(std::size(subobjects)), subobjects, reinterpret_cast<reshade::api::pipeline *>(&pPipelines[i]), &create_info) ? VK_SUCCESS : VK_ERROR_OUT_OF_HOST_MEMORY;
+		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(std::size(subobjects)), subobjects, override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
 		}
 		else
 		{
@@ -1835,6 +1879,12 @@ VkResult VKAPI_CALL vkCreateRayTracingPipelinesKHR(VkDevice device, VkDeferredOp
 
 			result = device_impl->create_pipeline(
 				reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), reinterpret_cast<reshade::api::pipeline *>(&pPipelines[i]), &create_info) ? VK_SUCCESS : VK_ERROR_OUT_OF_HOST_MEMORY;
+		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
 		}
 		else
 		{
