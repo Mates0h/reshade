@@ -59,7 +59,7 @@ namespace reshade
 	/// Checks whether any callbacks were registered for the specified <paramref name="ev"/>ent.
 	/// </summary>
 	template <addon_event ev>
-	__forceinline bool has_addon_event()
+	bool has_addon_event()
 	{
 		return !addon_event_list[static_cast<uint32_t>(ev)].empty();
 	}
@@ -68,7 +68,7 @@ namespace reshade
 	/// Invokes all registered callbacks for the specified <typeparamref name="ev"/>ent.
 	/// </summary>
 	template <addon_event ev, typename... Args>
-	__forceinline std::enable_if_t<std::is_same_v<typename addon_event_traits<ev>::type, void>, void> invoke_addon_event(Args &&... args)
+	std::enable_if_t<std::is_same_v<typename addon_event_traits<ev>::type, void>, void> invoke_addon_event(Args &&... args)
 	{
 #if RESHADE_ADDON == 1
 		// Ensure certain events are not compiled when only limited add-on support is enabled
@@ -150,7 +150,7 @@ namespace reshade
 	/// Invokes registered callbacks for the specified <typeparamref name="ev"/>ent until a callback reports back as having handled this event by returning <see langword="true"/>.
 	/// </summary>
 	template <addon_event ev, typename... Args>
-	__forceinline std::enable_if_t<std::is_same_v<typename addon_event_traits<ev>::type, bool>, bool> invoke_addon_event(Args &&... args)
+	std::enable_if_t<std::is_same_v<typename addon_event_traits<ev>::type, bool>, bool> invoke_addon_event(Args &&... args)
 	{
 #if RESHADE_ADDON == 1
 		static_assert(
@@ -174,7 +174,7 @@ namespace reshade
 			"Event that is disabled with limited add-on support was used!");
 
 		if constexpr (
-			ev != addon_event::create_resource_view) // This is needed by the Generic Depth add-on so that view creation succeeds for resources where the format was overriden
+			ev != addon_event::create_resource_view) // This is needed by the Generic Depth add-on so that view creation succeeds for resources where the format was overridden
 		if (!addon_enabled)
 			return false;
 #endif
@@ -182,6 +182,18 @@ namespace reshade
 		const std::vector<void *> &event_list = addon_event_list[static_cast<uint32_t>(ev)];
 		for (size_t cb = 0, count = event_list.size(); cb < count; ++cb)
 		{
+			if constexpr (
+				ev == addon_event::begin_render_pass ||
+				ev == addon_event::end_render_pass)
+			{
+				if (find_addon(event_list[cb])->api_version < 20)
+				{
+					// In older ABI versions these still had a void return type, so ignore and do not skip
+					reinterpret_cast<typename addon_event_traits<ev>::decl>(event_list[cb])(std::forward<Args>(args)...);
+					continue;
+				}
+			}
+
 			bool first_invocation = false;
 			if constexpr (
 				ev == addon_event::reshade_set_uniform_value ||

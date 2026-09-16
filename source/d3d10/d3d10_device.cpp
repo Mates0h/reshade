@@ -10,6 +10,7 @@
 #include "com_utils.hpp"
 #include "hook_manager.hpp"
 #include "addon_manager.hpp"
+#include <intrin.h> // _ReturnAddress
 
 using reshade::d3d10::to_handle;
 
@@ -32,7 +33,7 @@ D3D10Device::D3D10Device(IDXGIAdapter *adapter, IDXGIDevice1 *original_dxgi_devi
 		reshade::api::descriptor_range { 0, 0, 0, D3D10_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, reshade::api::shader_stage::all, 1, reshade::api::descriptor_type::shader_resource_view },
 		reshade::api::descriptor_range { 0, 0, 0, D3D10_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, reshade::api::shader_stage::all, 1, reshade::api::descriptor_type::constant_buffer },
 	};
-	device_impl::create_pipeline_layout(static_cast<uint32_t>(std::size(global_pipeline_layout_params)), global_pipeline_layout_params, &_global_pipeline_layout);
+	device_impl::create_pipeline_layout(std::size(global_pipeline_layout_params), global_pipeline_layout_params, &_global_pipeline_layout);
 	reshade::invoke_addon_event<reshade::addon_event::init_pipeline_layout>(this, static_cast<uint32_t>(std::size(global_pipeline_layout_params)), global_pipeline_layout_params, _global_pipeline_layout);
 
 	reshade::invoke_addon_event<reshade::addon_event::init_command_list>(this);
@@ -82,6 +83,16 @@ HRESULT STDMETHODCALLTYPE D3D10Device::QueryInterface(REFIID riid, void **ppvObj
 		return S_OK;
 	}
 
+	// Do not proxy calls coming from DXGI
+	// The 'IDXGIOutput1::DuplicateOutput' implementation for example queries the device, then gets the adapter from the device and attempts to call an internal function on that adapter object, which crashes if it is the proxied object
+	extern std::filesystem::path get_system_path();
+	if (HMODULE return_module = nullptr;
+		GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<LPCWSTR>(_ReturnAddress()), &return_module) &&
+		return_module == GetModuleHandleW((get_system_path() / L"dxgi.dll").c_str()))
+	{
+		return _orig->QueryInterface(riid, ppvObj);
+	}
+
 	if (check_and_upgrade_interface(riid))
 	{
 		AddRef();
@@ -99,7 +110,6 @@ HRESULT STDMETHODCALLTYPE D3D10Device::QueryInterface(REFIID riid, void **ppvObj
 	}
 
 	// Interface ID to query the original object from a proxy object
-	constexpr GUID IID_UnwrappedObject = { 0x7f2c9a11, 0x3b4e, 0x4d6a, { 0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42 } }; // {7F2C9A11-3B4E-4D6A-812F-5E9CD37A1B42}
 	if (riid == IID_UnwrappedObject)
 	{
 		_orig->AddRef();
@@ -440,9 +450,9 @@ void    STDMETHODCALLTYPE D3D10Device::RSSetScissorRects(UINT NumRects, const D3
 }
 void    STDMETHODCALLTYPE D3D10Device::CopySubresourceRegion(ID3D10Resource *pDstResource, UINT DstSubresource, UINT DstX, UINT DstY, UINT DstZ, ID3D10Resource *pSrcResource, UINT SrcSubresource, const D3D10_BOX *pSrcBox)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr && pSrcResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::copy_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::copy_texture_region>())
 	{
@@ -487,33 +497,33 @@ void    STDMETHODCALLTYPE D3D10Device::CopySubresourceRegion(ID3D10Resource *pDs
 
 					switch (type)
 					{
-						case D3D10_RESOURCE_DIMENSION_TEXTURE1D:
+					case D3D10_RESOURCE_DIMENSION_TEXTURE1D:
 						{
 							D3D10_TEXTURE1D_DESC desc;
 							static_cast<ID3D10Texture1D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += 1;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D10_RESOURCE_DIMENSION_TEXTURE2D:
+						break;
+					case D3D10_RESOURCE_DIMENSION_TEXTURE2D:
 						{
 							D3D10_TEXTURE2D_DESC desc;
 							static_cast<ID3D10Texture2D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D10_RESOURCE_DIMENSION_TEXTURE3D:
+						break;
+					case D3D10_RESOURCE_DIMENSION_TEXTURE3D:
 						{
 							D3D10_TEXTURE3D_DESC desc;
 							static_cast<ID3D10Texture3D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += desc.Depth;
-							break;
 						}
+						break;
 					}
 				}
 			}
@@ -536,9 +546,9 @@ void    STDMETHODCALLTYPE D3D10Device::CopySubresourceRegion(ID3D10Resource *pDs
 }
 void    STDMETHODCALLTYPE D3D10Device::CopyResource(ID3D10Resource *pDstResource, ID3D10Resource *pSrcResource)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr && pSrcResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::invoke_addon_event<reshade::addon_event::copy_resource>(this, to_handle(pSrcResource), to_handle(pDstResource)))
 		return;
 #endif
@@ -546,9 +556,9 @@ void    STDMETHODCALLTYPE D3D10Device::CopyResource(ID3D10Resource *pDstResource
 }
 void    STDMETHODCALLTYPE D3D10Device::UpdateSubresource(ID3D10Resource *pDstResource, UINT DstSubresource, const D3D10_BOX *pDstBox, const void *pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::update_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::update_texture_region>())
 	{
@@ -564,7 +574,7 @@ void    STDMETHODCALLTYPE D3D10Device::UpdateSubresource(ID3D10Resource *pDstRes
 					pSrcData,
 					to_handle(pDstResource),
 					pDstBox != nullptr ? pDstBox->left : 0,
-					pDstBox != nullptr ? pDstBox->right - pDstBox->left : SrcRowPitch))
+					pDstBox != nullptr ? pDstBox->right - pDstBox->left : UINT64_MAX))
 				return;
 		}
 		else
@@ -1209,12 +1219,15 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateInputLayout(const D3D10_INPUT_ELEME
 	for (UINT i = 0; i < NumElements; ++i)
 		desc.push_back(reshade::d3d10::convert_input_element(pInputElementDescs[i]));
 
+	reshade::api::dynamic_state dynamic_states[] = { reshade::api::dynamic_state::input_element_stride };
+
 	reshade::api::shader_desc signature_desc = {};
 	signature_desc.code = pShaderBytecodeWithInputSignature;
 	signature_desc.code_size = BytecodeLength;
 
 	const reshade::api::pipeline_subobject subobjects[] = {
 		{ reshade::api::pipeline_subobject_type::input_layout, static_cast<uint32_t>(desc.size()), desc.data() },
+		{ reshade::api::pipeline_subobject_type::dynamic_pipeline_states, static_cast<uint32_t>(std::size(dynamic_states)), dynamic_states },
 		{ reshade::api::pipeline_subobject_type::vertex_shader, 1, &signature_desc }
 	};
 
@@ -1800,9 +1813,9 @@ HRESULT STDMETHODCALLTYPE D3D10Device::OpenSharedResource(HANDLE hResource, REFI
 	const HRESULT hr = _orig->OpenSharedResource(hResource, ReturnedInterface, ppResource);
 	if (SUCCEEDED(hr))
 	{
+#if RESHADE_ADDON
 		assert(ppResource != nullptr);
 
-#if RESHADE_ADDON
 		// The returned interface IID may be 'IDXGIResource', which is a different pointer than 'ID3D10Resource', so need to query it first
 		ID3D10Resource *resource = nullptr;
 		reshade::api::resource_desc desc;

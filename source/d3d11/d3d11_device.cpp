@@ -12,6 +12,7 @@
 #include "com_utils.hpp"
 #include "hook_manager.hpp"
 #include "addon_manager.hpp"
+#include <intrin.h> // _ReturnAddress
 
 using reshade::d3d11::to_handle;
 
@@ -40,7 +41,7 @@ D3D11Device::D3D11Device(IDXGIAdapter *adapter, IDXGIDevice1 *original_dxgi_devi
 			feature_level == D3D_FEATURE_LEVEL_11_0 ? D3D11_PS_CS_UAV_REGISTER_COUNT :
 			feature_level >= D3D_FEATURE_LEVEL_10_0 ? D3D11_CS_4_X_UAV_REGISTER_COUNT : 0u, reshade::api::shader_stage::pixel | reshade::api::shader_stage::compute, 1, reshade::api::descriptor_type::unordered_access_view },
 	};
-	device_impl::create_pipeline_layout(static_cast<uint32_t>(std::size(global_pipeline_layout_params)), global_pipeline_layout_params, &_global_pipeline_layout);
+	device_impl::create_pipeline_layout(std::size(global_pipeline_layout_params), global_pipeline_layout_params, &_global_pipeline_layout);
 	reshade::invoke_addon_event<reshade::addon_event::init_pipeline_layout>(this, static_cast<uint32_t>(std::size(global_pipeline_layout_params)), global_pipeline_layout_params, _global_pipeline_layout);
 #endif
 }
@@ -78,7 +79,7 @@ bool D3D11Device::check_and_upgrade_interface(REFIID riid)
 		__uuidof(ID3D11Device5), // {8FFDE202-A0E7-45DF-9E01-E837801B5EA0}
 	};
 
-	for (unsigned short version = 0; version < ARRAYSIZE(iid_lookup); ++version)
+	for (unsigned short version = 0; version < std::size(iid_lookup); ++version)
 	{
 		if (riid != iid_lookup[version])
 			continue;
@@ -153,7 +154,6 @@ HRESULT STDMETHODCALLTYPE D3D11Device::QueryInterface(REFIID riid, void **ppvObj
 	}
 
 	// Interface ID to query the original object from a proxy object
-	constexpr GUID IID_UnwrappedObject = { 0x7f2c9a11, 0x3b4e, 0x4d6a, { 0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42 } }; // {7F2C9A11-3B4E-4D6A-812F-5E9CD37A1B42}
 	if (riid == IID_UnwrappedObject)
 	{
 		_orig->AddRef();
@@ -485,7 +485,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView(ID3D11Resource *
 		return _orig->CreateShaderResourceView(pResource, pDesc, ppShaderResourceView);
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC internal_desc = (pDesc != nullptr) ? *pDesc : D3D11_SHADER_RESOURCE_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN };
-	auto desc = reshade::d3d11::convert_resource_view_desc(internal_desc);
+	auto desc = reshade::d3d11::convert_resource_view_desc(pResource, internal_desc);
 
 	if (reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(this, to_handle(pResource), reshade::api::resource_usage::shader_resource, desc))
 	{
@@ -536,7 +536,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView(ID3D11Resource 
 		return _orig->CreateUnorderedAccessView(pResource, pDesc, ppUnorderedAccessView);
 
 	D3D11_UNORDERED_ACCESS_VIEW_DESC internal_desc = (pDesc != nullptr) ? *pDesc : D3D11_UNORDERED_ACCESS_VIEW_DESC { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN };
-	auto desc = reshade::d3d11::convert_resource_view_desc(internal_desc);
+	auto desc = reshade::d3d11::convert_resource_view_desc(pResource, internal_desc);
 
 	if (reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(this, to_handle(pResource), reshade::api::resource_usage::unordered_access, desc))
 	{
@@ -691,12 +691,15 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateInputLayout(const D3D11_INPUT_ELEME
 	for (UINT i = 0; i < NumElements; ++i)
 		desc.push_back(reshade::d3d11::convert_input_element(pInputElementDescs[i]));
 
+	reshade::api::dynamic_state dynamic_states[] = { reshade::api::dynamic_state::input_element_stride };
+
 	reshade::api::shader_desc signature_desc = {};
 	signature_desc.code = pShaderBytecodeWithInputSignature;
 	signature_desc.code_size = BytecodeLength;
 
 	const reshade::api::pipeline_subobject subobjects[] = {
 		{ reshade::api::pipeline_subobject_type::input_layout, static_cast<uint32_t>(desc.size()), desc.data() },
+		{ reshade::api::pipeline_subobject_type::dynamic_pipeline_states, static_cast<uint32_t>(std::size(dynamic_states)), dynamic_states },
 		{ reshade::api::pipeline_subobject_type::vertex_shader, 1, &signature_desc }
 	};
 
@@ -1771,11 +1774,13 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState1(const D3D11_RASTER
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeviceContextState(UINT Flags, const D3D_FEATURE_LEVEL *pFeatureLevels, UINT FeatureLevels, UINT SDKVersion, REFIID EmulatedInterface, D3D_FEATURE_LEVEL *pChosenFeatureLevel, ID3DDeviceContextState **ppContextState)
 {
 	assert(_interface_version >= 1);
+
 	return static_cast<ID3D11Device1 *>(_orig)->CreateDeviceContextState(Flags, pFeatureLevels, FeatureLevels, SDKVersion, EmulatedInterface, pChosenFeatureLevel, ppContextState);
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResource1(HANDLE hResource, REFIID returnedInterface, void **ppResource)
 {
 	assert(_interface_version >= 1);
+
 	const HRESULT hr = static_cast<ID3D11Device1 *>(_orig)->OpenSharedResource1(hResource, returnedInterface, ppResource);
 	if (SUCCEEDED(hr))
 	{
@@ -1849,6 +1854,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResource1(HANDLE hResource, REF
 HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedResourceByName(LPCWSTR lpName, DWORD dwDesiredAccess, REFIID returnedInterface, void **ppResource)
 {
 	assert(_interface_version >= 1);
+
 	const HRESULT hr = static_cast<ID3D11Device1 *>(_orig)->OpenSharedResourceByName(lpName, dwDesiredAccess, returnedInterface, ppResource);
 	if (SUCCEEDED(hr))
 	{
@@ -1963,11 +1969,13 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeferredContext2(UINT ContextFlags,
 void    STDMETHODCALLTYPE D3D11Device::GetResourceTiling(ID3D11Resource *pTiledResource, UINT *pNumTilesForEntireResource, D3D11_PACKED_MIP_DESC *pPackedMipDesc, D3D11_TILE_SHAPE *pStandardTileShapeForNonPackedMips, UINT *pNumSubresourceTilings, UINT FirstSubresourceTilingToGet, D3D11_SUBRESOURCE_TILING *pSubresourceTilingsForNonPackedMips)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11Device2 *>(_orig)->GetResourceTiling(pTiledResource, pNumTilesForEntireResource, pPackedMipDesc, pStandardTileShapeForNonPackedMips, pNumSubresourceTilings, FirstSubresourceTilingToGet, pSubresourceTilingsForNonPackedMips);
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CheckMultisampleQualityLevels1(DXGI_FORMAT Format, UINT SampleCount, UINT Flags, UINT *pNumQualityLevels)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<ID3D11Device2 *>(_orig)->CheckMultisampleQualityLevels1(Format, SampleCount, Flags, pNumQualityLevels);
 }
 
@@ -2195,7 +2203,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceView1(ID3D11Resource 
 		return static_cast<ID3D11Device3 *>(_orig)->CreateShaderResourceView1(pResource, pDesc1, ppShaderResourceView1);
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC1 internal_desc = (pDesc1 != nullptr) ? *pDesc1 : D3D11_SHADER_RESOURCE_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_SRV_DIMENSION_UNKNOWN };
-	auto desc = reshade::d3d11::convert_resource_view_desc(internal_desc);
+	auto desc = reshade::d3d11::convert_resource_view_desc(pResource, internal_desc);
 
 	if (reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(this, to_handle(pResource), reshade::api::resource_usage::shader_resource, desc))
 	{
@@ -2248,7 +2256,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessView1(ID3D11Resource
 		return static_cast<ID3D11Device3 *>(_orig)->CreateUnorderedAccessView1(pResource, pDesc1, ppUnorderedAccessView1);
 
 	D3D11_UNORDERED_ACCESS_VIEW_DESC1 internal_desc = (pDesc1 != nullptr) ? *pDesc1 : D3D11_UNORDERED_ACCESS_VIEW_DESC1 { DXGI_FORMAT_UNKNOWN, D3D11_UAV_DIMENSION_UNKNOWN };
-	auto desc = reshade::d3d11::convert_resource_view_desc(internal_desc);
+	auto desc = reshade::d3d11::convert_resource_view_desc(pResource, internal_desc);
 
 	if (reshade::invoke_addon_event<reshade::addon_event::create_resource_view>(this, to_handle(pResource), reshade::api::resource_usage::unordered_access, desc))
 	{
@@ -2346,6 +2354,7 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetView1(ID3D11Resource *p
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateQuery1(const D3D11_QUERY_DESC1 *pQueryDesc1, ID3D11Query1 **ppQuery1)
 {
 	assert(_interface_version >= 3);
+
 	return static_cast<ID3D11Device3 *>(_orig)->CreateQuery1(pQueryDesc1, ppQuery1);
 }
 void    STDMETHODCALLTYPE D3D11Device::GetImmediateContext3(ID3D11DeviceContext3 **ppImmediateContext)
@@ -2391,32 +2400,38 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateDeferredContext3(UINT ContextFlags,
 void    STDMETHODCALLTYPE D3D11Device::WriteToSubresource(ID3D11Resource *pDstResource, UINT DstSubresource, const D3D11_BOX *pDstBox, const void *pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch)
 {
 	assert(_interface_version >= 3);
+
 	static_cast<ID3D11Device3 *>(_orig)->WriteToSubresource(pDstResource, DstSubresource, pDstBox, pSrcData, SrcRowPitch, SrcDepthPitch);
 }
 void    STDMETHODCALLTYPE D3D11Device::ReadFromSubresource(void *pDstData, UINT DstRowPitch, UINT DstDepthPitch, ID3D11Resource *pSrcResource, UINT SrcSubresource, const D3D11_BOX *pSrcBox)
 {
 	assert(_interface_version >= 3);
+
 	static_cast<ID3D11Device3 *>(_orig)->ReadFromSubresource(pDstData, DstRowPitch, DstDepthPitch, pSrcResource, SrcSubresource, pSrcBox);
 }
 
 HRESULT STDMETHODCALLTYPE D3D11Device::RegisterDeviceRemovedEvent(HANDLE hEvent, DWORD *pdwCookie)
 {
 	assert(_interface_version >= 4);
+
 	return static_cast<ID3D11Device4 *>(_orig)->RegisterDeviceRemovedEvent(hEvent, pdwCookie);
 }
 void    STDMETHODCALLTYPE D3D11Device::UnregisterDeviceRemoved(DWORD dwCookie)
 {
 	assert(_interface_version >= 4);
+
 	static_cast<ID3D11Device4 *>(_orig)->UnregisterDeviceRemoved(dwCookie);
 }
 
 HRESULT STDMETHODCALLTYPE D3D11Device::OpenSharedFence(HANDLE hFence, REFIID ReturnedInterface, void **ppFence)
 {
 	assert(_interface_version >= 5);
+
 	return static_cast<ID3D11Device5 *>(_orig)->OpenSharedFence(hFence, ReturnedInterface, ppFence);
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateFence(UINT64 InitialValue, D3D11_FENCE_FLAG Flags, REFIID ReturnedInterface, void **ppFence)
 {
 	assert(_interface_version >= 5);
+
 	return static_cast<ID3D11Device5 *>(_orig)->CreateFence(InitialValue, Flags, ReturnedInterface, ppFence);
 }

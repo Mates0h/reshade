@@ -270,15 +270,15 @@ public:
 			*min_level = _desc.texture.first_level;
 			*min_layer = _desc.texture.first_layer;
 
-			if (_desc.texture.level_count == UINT32_MAX)
+			if (_desc.texture.levels == UINT32_MAX)
 				*num_levels = device->get_resource_desc(_resource).texture.levels;
 			else
-				*num_levels = _desc.texture.level_count;
+				*num_levels = _desc.texture.levels;
 
-			if (_desc.texture.layer_count == UINT32_MAX)
+			if (_desc.texture.layers == UINT32_MAX)
 				*num_layers = device->get_resource_desc(_resource).texture.depth_or_layers;
 			else
-				*num_layers = _desc.texture.layer_count;
+				*num_layers = _desc.texture.layers;
 		}
 	}
 
@@ -287,6 +287,8 @@ public:
 		assert(_object != 0);
 
 		const auto device = static_cast<reshade::opengl::device_impl *>(g_opengl_context->get_device());
+
+		device->register_resource_view(_target, _object, _resource);
 
 		reshade::invoke_addon_event<reshade::addon_event::init_resource_view>(
 			device, _resource, reshade::api::resource_usage::undefined, _desc, reshade::opengl::make_resource_view_handle(_target, _object));
@@ -839,7 +841,7 @@ extern "C" void APIENTRY glEnable(GLenum cap)
 		reshade::has_addon_event<reshade::addon_event::bind_pipeline_states>())
 	{
 		uint32_t value = GL_TRUE;
-		reshade::api::dynamic_state state = { reshade::api::dynamic_state::unknown };
+		reshade::api::dynamic_state state = reshade::api::dynamic_state::unknown;
 		switch (cap)
 		{
 		case GL_ALPHA_TEST:
@@ -1306,9 +1308,12 @@ extern "C" void APIENTRY glBindTexture(GLenum target, GLuint texture)
 		gl.GetIntegerv(GL_ACTIVE_TEXTURE, &texunit);
 		texunit -= GL_TEXTURE0;
 
-		// Could technically get current sampler via "GL_SAMPLER_BINDING", but that only works if sampler objects are used and bound before the texture, which is not necessarily the case
+		// This only works if sampler objects are used and bound before the texture, which is not necessarily the case
+		GLint sampler = 0;
+		gl.GetIntegeri_v(GL_SAMPLER_BINDING, texunit, &sampler);
+
 		reshade::api::sampler_with_resource_view descriptor_data = {
-			reshade::api::sampler { 0 },
+			reshade::api::sampler { static_cast<uint64_t>(sampler) },
 			reshade::opengl::make_resource_view_handle(target, texture)
 		};
 
@@ -4033,7 +4038,11 @@ void APIENTRY glBindTextures(GLuint first, GLsizei count, const GLuint *textures
 					gl.GetTextureParameteriv(textures[i], GL_TEXTURE_TARGET, &target);
 
 				descriptor_data[i].view = reshade::opengl::make_resource_view_handle(target, textures[i]);
-				descriptor_data[i].sampler = { 0 };
+
+				GLint sampler = 0;
+				gl.GetIntegeri_v(GL_SAMPLER_BINDING, i, &sampler);
+
+				descriptor_data[i].sampler = { static_cast<uint64_t>(sampler) };
 			}
 		}
 		else
@@ -4679,8 +4688,11 @@ void APIENTRY glBindTextureUnit(GLuint unit, GLuint texture)
 		GLint target = GL_TEXTURE;
 		gl.GetTextureParameteriv(texture, GL_TEXTURE_TARGET, &target);
 
+		GLint sampler = 0;
+		gl.GetIntegeri_v(GL_SAMPLER_BINDING, unit, &sampler);
+
 		reshade::api::sampler_with_resource_view descriptor_data = {
-			reshade::api::sampler { 0 },
+			reshade::api::sampler { static_cast<uint64_t>(sampler) },
 			reshade::opengl::make_resource_view_handle(target, texture)
 		};
 
@@ -4706,10 +4718,11 @@ void APIENTRY glBindProgramARB(GLenum target, GLuint program)
 		reshade::api::pipeline_stage stage;
 		switch (target)
 		{
-		case 0x8620 /* GL_VERTEX_PROGRAM_ARB */:
+		case 0x8620 /* GL_VERTEX_PROGRAM_ARB, GL_VERTEX_PROGRAM_NV */:
 			stage = reshade::api::pipeline_stage::vertex_shader;
 			break;
 		case 0x8804 /* GL_FRAGMENT_PROGRAM_ARB */:
+		case 0x8870 /* GL_FRAGMENT_PROGRAM_NV */:
 			stage = reshade::api::pipeline_stage::pixel_shader;
 			break;
 		default:
@@ -4737,10 +4750,11 @@ void APIENTRY glProgramStringARB(GLenum target, GLenum format, GLsizei length, c
 		reshade::api::pipeline_subobject_type subobject_type;
 		switch (target)
 		{
-		case 0x8620 /* GL_VERTEX_PROGRAM_ARB */:
+		case 0x8620 /* GL_VERTEX_PROGRAM_ARB, GL_VERTEX_PROGRAM_NV */:
 			subobject_type = reshade::api::pipeline_subobject_type::vertex_shader;
 			break;
 		case 0x8804 /* GL_FRAGMENT_PROGRAM_ARB */:
+		case 0x8870 /* GL_FRAGMENT_PROGRAM_NV */:
 			subobject_type = reshade::api::pipeline_subobject_type::pixel_shader;
 			break;
 		default:
@@ -4822,8 +4836,11 @@ void APIENTRY glBindMultiTextureEXT(GLenum texunit, GLenum target, GLuint textur
 		assert(texunit >= GL_TEXTURE0);
 		texunit -= GL_TEXTURE0;
 
+		GLint sampler = 0;
+		gl.GetIntegeri_v(GL_SAMPLER_BINDING, texunit, &sampler);
+
 		reshade::api::sampler_with_resource_view descriptor_data = {
-			reshade::api::sampler { 0 },
+			reshade::api::sampler { static_cast<uint64_t>(sampler) },
 			reshade::opengl::make_resource_view_handle(target, texture)
 		};
 
