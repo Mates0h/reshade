@@ -1596,6 +1596,12 @@ VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache p
 			pPipelines[i] = (VkPipeline)override_pipeline.handle;
 			result = VK_SUCCESS;
 		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
+		}
 		else
 		{
 			result = trampoline(device, pipelineCache, 1, &create_info, pAllocator, &pPipelines[i]);
@@ -1679,6 +1685,12 @@ VkResult VKAPI_CALL vkCreateComputePipelines(VkDevice device, VkPipelineCache pi
 		{
 			result = device_impl->create_pipeline(
 				reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(std::size(subobjects)), subobjects, reinterpret_cast<reshade::api::pipeline *>(&pPipelines[i]), &create_info) ? VK_SUCCESS : VK_ERROR_OUT_OF_HOST_MEMORY;
+		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(std::size(subobjects)), subobjects, override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
 		}
 		else if (reshade::api::pipeline override_pipeline = {};
 			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(std::size(subobjects)), subobjects, override_pipeline))
@@ -1879,6 +1891,12 @@ VkResult VKAPI_CALL vkCreateRayTracingPipelinesKHR(VkDevice device, VkDeferredOp
 
 			result = device_impl->create_pipeline(
 				reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), reinterpret_cast<reshade::api::pipeline *>(&pPipelines[i]), &create_info) ? VK_SUCCESS : VK_ERROR_OUT_OF_HOST_MEMORY;
+		}
+		else if (reshade::api::pipeline override_pipeline = {};
+			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), override_pipeline))
+		{
+			pPipelines[i] = (VkPipeline)override_pipeline.handle;
+			result = VK_SUCCESS;
 		}
 		else if (reshade::api::pipeline override_pipeline = {};
 			reshade::invoke_addon_event<reshade::addon_event::override_pipeline>(device_impl, reshade::api::pipeline_layout { (uint64_t)create_info.layout }, static_cast<uint32_t>(subobjects.size()), subobjects.data(), override_pipeline))
